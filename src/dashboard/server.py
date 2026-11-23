@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from src.activity import activity
-from src.artifacts import assemble_page
+from src.artifacts import assemble_page, page_fragments
 from src.config import PROJECT_ROOT, settings
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -237,10 +237,7 @@ def _state_event(state: Any, mode: str) -> dict[str, Any]:
     if mode == "build" and state.subtask_results:
         artifact = assemble_page(
             state.current_task,
-            [
-                str(item.get("content", ""))
-                for item in sorted(state.subtask_results, key=lambda r: r.get("index", 0))
-            ],
+            page_fragments(state),
             overlay=True,
             theme=state.context.get("design_theme") or None,
         )

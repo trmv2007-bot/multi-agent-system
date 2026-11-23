@@ -21,7 +21,7 @@ from src.agents.build import (
     ReplanAgent,
     SectionWriterAgent,
 )
-from src.artifacts import assemble_page
+from src.artifacts import assemble_page, page_fragments
 from src.config import settings
 from src.graph.state import AgentState
 from src.graph.workflow import _initial_state, checkpointer_scope, reset_thread, resume_info
@@ -30,14 +30,8 @@ from src.tools import as_langchain_tools
 
 def _assemble(state: AgentState) -> str:
     """The page from this turn's sections, in plan order, in its own theme."""
-    current = [r for r in state.subtask_results if r.get("turn", "") == state.turn]
-    ordered = sorted(current or state.subtask_results, key=lambda r: r.get("index", 0))
     theme = state.context.get("design_theme") or None
-    return assemble_page(
-        state.current_task,
-        [str(item.get("content", "")) for item in ordered],
-        theme=theme,
-    )
+    return assemble_page(state.current_task, page_fragments(state), theme=theme)
 
 
 def _notes_of(state: AgentState) -> str:
