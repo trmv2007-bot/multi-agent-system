@@ -7,9 +7,10 @@ per page. Without a theme every page looks identical, which is exactly what
 happens when a build system only varies its words.
 """
 
-import json
 import re
 from typing import Any
+
+from src.structured import parse_json
 
 DESIGN_SKILL = """You are designing one page for one subject. Work like a designer, not a decorator.
 
@@ -312,17 +313,8 @@ def capture_theme(**values: Any) -> dict[str, Any]:
     return theme
 
 
-def parse_theme(text: str) -> dict[str, Any]:
-    """Read the designer's JSON, falling back to the default theme."""
-    match = re.search(r"\{.*\}", text or "", re.S)
-    if not match:
-        return dict(DEFAULT_THEME)
-
-    try:
-        raw = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return dict(DEFAULT_THEME)
-
+def theme_from(raw: Any) -> dict[str, Any]:
+    """Validate a parsed designer reply into a theme, defaulting what it misses."""
     if not isinstance(raw, dict):
         return dict(DEFAULT_THEME)
 
@@ -350,6 +342,11 @@ def parse_theme(text: str) -> dict[str, Any]:
             theme[key] = value.strip()
 
     return theme
+
+
+def parse_theme(text: str) -> dict[str, Any]:
+    """Read the designer's JSON out of a reply, falling back to the default theme."""
+    return theme_from(parse_json(text, expect=dict))
 
 
 def theme_css(theme: dict[str, Any] | None) -> str:

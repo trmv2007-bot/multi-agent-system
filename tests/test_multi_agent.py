@@ -122,6 +122,8 @@ class TestResearcherAgent:
         answer_response.usage_metadata = {"input_tokens": 100, "output_tokens": 50}
 
         researcher.llm.bind_tools = MagicMock(return_value=researcher.llm)
+
+        researcher.llm.bind = MagicMock(return_value=researcher.llm)
         researcher.llm.ainvoke = AsyncMock(side_effect=[tool_call_response, answer_response])
 
         state = AgentState(current_task="Test query")
@@ -341,6 +343,7 @@ async def test_nodes_return_updates_without_mutating_input():
         )
     )
     mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+    mock_llm.bind = MagicMock(return_value=mock_llm)
 
     state = AgentState(current_task="Test query")
     state.add_message("user", "Test query")
@@ -371,6 +374,7 @@ async def test_full_workflow_mock():
             )
         )
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+        mock_llm.bind = MagicMock(return_value=mock_llm)
         mock_get_llm.return_value = mock_llm
 
         result = await run_workflow("Test query", "test-thread")
@@ -569,6 +573,7 @@ class TestRetryAndFailover:
         llm = AsyncMock()
         llm.ainvoke = flaky
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         # Failover must not reach the real provider chain from a unit test.
         monkeypatch.setattr("src.agents.base.router", stub_router_for(llm))
@@ -589,6 +594,7 @@ class TestRetryAndFailover:
         llm = AsyncMock()
         llm.ainvoke = always_limited
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         monkeypatch.setattr("src.agents.base.router", stub_router_for(llm))
 
@@ -607,6 +613,7 @@ class TestRetryAndFailover:
         llm = AsyncMock()
         llm.ainvoke = bad_request
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         monkeypatch.setattr("src.agents.base.router", stub_router_for(llm))
 
@@ -665,6 +672,7 @@ class TestTeamWorkflow:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm, overlap
 
     @pytest.mark.asyncio
@@ -712,6 +720,7 @@ class TestTeamWorkflow:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         worker = WorkerAgent(llm=llm, tools=[tool])
         update = await worker.run_subtask(index=0, task="look it up", query="q")
@@ -739,6 +748,7 @@ class TestTeamWorkflow:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         from langchain_core.tools import StructuredTool
 
@@ -764,6 +774,7 @@ class TestTeamWorkflow:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         update = await WorkerAgent(llm=llm, tools=[]).run_subtask(index=0, task="t", query="q")
         assert update["subtask_results"][0]["content"] == "(worker produced no output)"
@@ -904,6 +915,7 @@ class TestThreadMemory:
             return_value=MagicMock(content="memo answer", tool_calls=None, usage_metadata={})
         )
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.mark.asyncio
@@ -961,6 +973,7 @@ class TestTeamResilience:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         with (
             patch("src.agents.base.get_llm", return_value=llm),
@@ -991,6 +1004,7 @@ class TestTeamResilience:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         with (
             patch("src.agents.base.get_llm", return_value=llm),
@@ -1039,6 +1053,7 @@ class TestDashboard:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         monkeypatch.setattr("src.config.get_llm", lambda: llm)
 
         run = Run(id="test", thread_id="chat-test", query="do the thing", mode="team", subtasks=2)
@@ -1151,6 +1166,7 @@ class TestBuildMode:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         with (
             patch("src.agents.base.get_llm", return_value=llm),
@@ -1210,6 +1226,7 @@ class TestBuildMode:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         with (
             patch("src.agents.base.get_llm", return_value=llm),
@@ -1371,6 +1388,7 @@ class TestTextToolCalls:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         worker = WorkerAgent(llm=llm, tools=[tool])
         update = await worker.run_subtask(index=0, task="t", query="q")

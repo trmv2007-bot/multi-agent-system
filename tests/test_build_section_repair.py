@@ -82,6 +82,7 @@ class TestBuildSectionRepair:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
 
         with (
             patch("src.agents.base.get_llm", return_value=llm),

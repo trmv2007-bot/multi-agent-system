@@ -97,6 +97,19 @@ class AgentActivity:
             }
         self._publish(event)
 
+    def structured(self, counts: dict[str, int], site: str = "") -> None:
+        """Report how reading JSON out of model replies is going, so a provider
+        that has started mangling JSON is visible while it happens."""
+        with self._lock:
+            self._sequence += 1
+            event: ActivityEvent = {
+                "type": "structured",
+                "site": site,
+                "counts": dict(counts),
+                "seq": self._sequence,
+            }
+        self._publish(event)
+
     def pointer(self, x: float, y: float, label: str = "Agent", status: str = "") -> None:
         """Report where the real mouse pointer is, for the on-screen overlay."""
         with self._lock:
