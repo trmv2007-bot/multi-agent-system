@@ -161,10 +161,9 @@ class MCPToolServer:
 
     async def _research_report(self, query: str, thread_id: str | None = None) -> dict[str, Any]:
         """Run the research pipeline and report the answer with its sources."""
-        from src.config import get_llm
         from src.graph.workflow import run_workflow
 
-        state = await run_workflow(query, thread_id or f"mcp-{uuid.uuid4()}", get_llm())
+        state = await run_workflow(query, thread_id or f"mcp-{uuid.uuid4()}")
 
         return {
             "answer": state.final_report,
@@ -175,10 +174,9 @@ class MCPToolServer:
 
     async def _team_task(self, task: str, max_subtasks: int = 4) -> dict[str, Any]:
         """Run team mode and report the answer alongside the plan it worked from."""
-        from src.config import get_llm
         from src.graph.team import run_team
 
-        state = await run_team(task, f"mcp-{uuid.uuid4()}", get_llm(), max_subtasks=max_subtasks)
+        state = await run_team(task, f"mcp-{uuid.uuid4()}", max_subtasks=max_subtasks)
 
         return {
             "answer": state.final_report,
