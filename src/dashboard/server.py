@@ -13,6 +13,7 @@ precisely.
 import asyncio
 import html
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -28,17 +29,22 @@ from pydantic import BaseModel
 from src.activity import activity
 from src.artifacts import assemble_page, page_fragments
 from src.config import PROJECT_ROOT, settings
+from src.dashboard.build_progress import BuildProgress
 from src.observability import end_run, start_run
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 CHAT_FILE = PROJECT_ROOT / "chats.json"
 STATE_FILE = PROJECT_ROOT / "thread-state.json"
 NOTES_FILE = PROJECT_ROOT / "dashboard-notes.json"
+BUILD_FILE = PROJECT_ROOT / "dashboard-builds.json"
 
 POLL_SECONDS = 0.15
 KEEPALIVE_SECONDS = 10.0
 MAX_RUNS = 40
 MAX_THREADS = 40
+MAX_BUILDS = 12
+TITLE_CHARS = 42
+WORKER_KEY = re.compile(r"worker\.(\d+)")
 
 
 @dataclass
@@ -61,6 +67,8 @@ class Run:
     findings: list[dict[str, Any]] = field(default_factory=list)
     artifact: str = ""
     cost: dict[str, Any] = field(default_factory=dict)
+    build_id: str = ""
+    fresh: bool = False
     task: asyncio.Task[None] | None = None
 
     def push(self, event: dict[str, Any]) -> None:
@@ -69,10 +77,46 @@ class Run:
         self.events.append(event)
 
 
+@dataclass
+class Build:
+    """One page: its own tab, its own conversation, its own progress."""
+
+    id: str
+    title: str
+    thread_id: str
+    text: str
+    request: str
+    document: str = ""
+    done: bool = False
+    failed: str = ""
+    cost: dict[str, Any] = field(default_factory=dict)
+    progress: BuildProgress = field(default_factory=BuildProgress)
+
+    def as_dict(self, with_document: bool = True) -> dict[str, Any]:
+        """Everything a tab needs to draw itself."""
+        payload: dict[str, Any] = {
+            "id": self.id,
+            "title": self.title,
+            "thread_id": self.thread_id,
+            "text": self.text,
+            "request": self.request,
+            "done": self.done,
+            "failed": self.failed,
+            "cost": self.cost,
+        }
+        payload.update(self.progress.as_dict())
+        if with_document:
+            payload["document"] = self.document
+        return payload
+
+
 RUNS: dict[str, Run] = {}
 CHATS: dict[str, list[dict[str, Any]]] = {}
 # What each conversation produced: the last page, the research, the summary.
 THREAD_STATE: dict[str, dict[str, Any]] = {}
+# Each build keeps its page and its progress in its own tab.
+BUILDS: dict[str, Build] = {}
+BUILD_ORDER: list[str] = []
 
 
 # ── chat log (display only; the workflow keeps its own memory) ───────
@@ -98,12 +142,101 @@ def _save_chats() -> None:
         pass
 
 
-def _previous_sections(thread_id: str) -> list[str]:
-    """The section names of the last page built in this thread."""
-    for message in reversed(CHATS.get(thread_id, [])):
-        if message.get("plan"):
-            return [str(name) for name in message["plan"]]
-    return []
+def _load_builds() -> None:
+    """Restore every build's tab: its page, its sections and its progress."""
+    if not BUILD_FILE.exists():
+        return
+    try:
+        data = json.loads(BUILD_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if not isinstance(data, list):
+        return
+    for value in data:
+        if not isinstance(value, dict):
+            continue
+        build = Build(
+            id=str(value.get("id") or ""),
+            title=str(value.get("title") or "Untitled page"),
+            thread_id=str(value.get("thread_id") or ""),
+            text=str(value.get("text") or ""),
+            request=str(value.get("request") or ""),
+            document=str(value.get("document") or ""),
+            done=bool(value.get("done")),
+            failed=str(value.get("failed") or ""),
+            cost=dict(value.get("cost") or {}),
+            progress=BuildProgress.from_dict(value),
+        )
+        if not build.id or not build.thread_id:
+            continue
+        if not build.done:
+            # Nothing can still be running: the server that ran it is gone.
+            build.progress.stopped(build.progress.seconds)
+            build.done = True
+        BUILDS[build.id] = build
+        BUILD_ORDER.append(build.id)
+
+
+def _save_builds() -> None:
+    """Persist the tabs so a refresh keeps every page and its checklist."""
+    rows = [BUILDS[build_id].as_dict() for build_id in BUILD_ORDER if build_id in BUILDS]
+    try:
+        BUILD_FILE.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _title_of(text: str) -> str:
+    """A tab label: the first few words of what was asked for."""
+    words = " ".join(text.split())
+    if len(words) <= TITLE_CHARS:
+        return words or "Untitled page"
+    return words[:TITLE_CHARS].rsplit(" ", 1)[0] + "…"
+
+
+def _open_build(edit_of: str, text: str) -> tuple[Build, bool]:
+    """The tab this build lands in, and whether it starts from nothing.
+
+    A new build gets its own conversation id, so the planner sees no earlier
+    page's sections and cannot edit a different page instead of building this
+    one. Only an explicit edit of an existing tab carries the sections over.
+    """
+    existing = BUILDS.get(edit_of.strip()) if edit_of.strip() else None
+    if existing is not None:
+        sections = existing.progress.plan
+        existing.text = text
+        existing.request = text
+        if sections:
+            existing.request = (
+                text
+                + chr(10)
+                + chr(10)
+                + "The page currently has these sections: "
+                + ", ".join(sections)
+                + "."
+            )
+        # Keep the page on screen while the new version is written.
+        existing.done = False
+        existing.failed = ""
+        existing.cost = {}
+        existing.progress = BuildProgress(started=time.time())
+        _save_builds()
+        return existing, False
+
+    build = Build(
+        id=uuid.uuid4().hex[:10],
+        title=_title_of(text),
+        thread_id="build-" + uuid.uuid4().hex[:10],
+        text=text,
+        request=text,
+        progress=BuildProgress(started=time.time()),
+    )
+    BUILDS[build.id] = build
+    BUILD_ORDER.append(build.id)
+    while len(BUILD_ORDER) > MAX_BUILDS:
+        BUILDS.pop(BUILD_ORDER.pop(0), None)
+    _save_builds()
+    return build, True
 
 
 def _load_state() -> None:
@@ -169,6 +302,7 @@ class ChatRequest(BaseModel):
     mode: str = "team"
     subtasks: int = 3
     intensity: str = "normal"  # normal | deep (research) | super (build)
+    build_id: str = ""  # set to edit that page instead of starting a new one
 
 
 class NoteRequest(BaseModel):
@@ -182,13 +316,19 @@ class NoteRequest(BaseModel):
 
 # ── driving one turn ─────────────────────────────────────────────────
 class _BuildCollector:
-    """Rebuilds the page preview every time one section lands."""
+    """Keeps the build's page and its progress in step with the run."""
 
     def __init__(self, run: Run) -> None:
         self.run = run
         self.parts: dict[int, str] = {}
         self.theme: dict[str, Any] | None = None
         self.plan_shown = False
+        self.build = BUILDS.get(run.build_id) if run.build_id else None
+
+    def _publish(self) -> None:
+        """Send the tab its status line and its checklist."""
+        if self.build is not None:
+            self.run.push({"type": "build", "build": self.build.as_dict(with_document=False)})
 
     def announce_plan(self) -> None:
         """Show the planned sections as placeholders before any are written."""
@@ -203,34 +343,80 @@ class _BuildCollector:
             )
             for index, name in enumerate(self.run.plan)
         ]
-        self.run.push(
-            {
-                "type": "artifact",
-                "html": assemble_page(self.run.query, blocks, overlay=True),
-                "sections": 0,
-            }
-        )
+        page = assemble_page(self.run.query, blocks, overlay=True)
+        if self.build is not None:
+            self.build.document = page
+        self.run.push({"type": "artifact", "html": page, "sections": 0})
+        self._publish()
+
+    def on_state(self, event: dict[str, Any]) -> None:
+        """Advance the build from one workflow step, then forward the step."""
+        if self.build is None:
+            self.run.push(event)
+            return
+
+        progress = self.build.progress
+        if event.get("plan"):
+            progress.saw_plan([str(name) for name in event["plan"]])
+            self.run.plan = [str(name) for name in event["plan"]]
+        if event.get("validations"):
+            progress.saw_review()
+        if event.get("sections"):
+            progress.saw_artifact(int(event["sections"]))
+        if event.get("artifact"):
+            self.build.document = str(event["artifact"])
+
+        self.run.push(event)
+        self._publish()
 
     def on_event(self, event: dict[str, Any]) -> None:
         """Forward bus events, turning finished pages into previews."""
-        if event.get("type") == "page":
-            html = str(event.get("html", ""))
-            self.run.artifact = html
-            self.run.push({"type": "artifact", "html": html, "sections": 0})
+        kind = event.get("type")
+
+        if kind == "page":
+            self._show_page(str(event.get("html", "")))
             return
 
-        if self.run.mode == "build" and event.get("type") == "section":
-            self.parts[int(event["index"])] = str(event["html"])
-            ordered = [self.parts[index] for index in sorted(self.parts)]
-            self.run.push(
-                {
-                    "type": "artifact",
-                    "html": assemble_page(self.run.query, ordered, overlay=True),
-                    "sections": len(ordered),
-                }
-            )
+        if kind == "section":
+            index = int(event["index"])
+            self.parts[index] = str(event["html"])
+            ordered = [self.parts[key] for key in sorted(self.parts)]
+            self._show_page(assemble_page(self.run.query, ordered, overlay=True))
+            if self.build is not None:
+                self.build.progress.saw_section(index)
+            self._publish()
             return
+
+        if kind == "agent" and self.build is not None:
+            match = WORKER_KEY.fullmatch(str(event.get("key", "")))
+            if match:
+                self.build.progress.saw_worker(int(match.group(1)))
+
         self.run.push(event)
+
+    def _show_page(self, page: str) -> None:
+        """Put a page in the tab and send it to the browser."""
+        self.run.artifact = page
+        if self.build is not None:
+            self.build.document = page
+        self.run.push({"type": "artifact", "html": page, "sections": len(self.parts)})
+
+
+def _finish_build(run: Run, error: str) -> None:
+    """Close the tab's status line now that the run is over."""
+    build = BUILDS.get(run.build_id) if run.build_id else None
+    if build is None:
+        return
+    seconds = time.time() - build.progress.started
+    if error:
+        build.progress.stopped(seconds)
+    else:
+        build.progress.built(seconds)
+    build.done = True
+    build.failed = error
+    build.cost = dict(run.cost)
+    run.push({"type": "build", "build": build.as_dict(with_document=False)})
+    _save_builds()
 
 
 def _state_event(state: Any, mode: str) -> dict[str, Any]:
@@ -284,9 +470,9 @@ async def _drive(run: Run) -> None:
         if run.mode == "agent":
             stream = run_agent_stream(run.query, run.thread_id, llm, fresh=False)
         elif run.mode == "build":
-            # A rebuild keeps the thread's history; per-turn results are scoped,
-            # and the prompt is told which sections the page currently has.
-            stream = run_build_stream(run.query, run.thread_id, llm, run.subtasks, fresh=False)
+            # A new tab starts a clean thread, so no other page's sections can
+            # leak into this one. Editing a tab continues that tab's own page.
+            stream = run_build_stream(run.query, run.thread_id, llm, run.subtasks, fresh=run.fresh)
         elif run.mode == "research":
             waves = 2 if run.intensity == "deep" else 1
             stream = run_research_stream(
@@ -306,16 +492,18 @@ async def _drive(run: Run) -> None:
             collector.theme = state.context.get("design_theme") or collector.theme
             run.artifact = event["artifact"] or run.artifact
             run.findings = list(state.research_findings) or run.findings
-            run.push(event)
+            collector.on_state(event)
 
         run.cost = end_run(meter)
         run.done = True
+        _finish_build(run, "")
         run.push({"type": "done", "answer": run.answer, "cost": run.cost})
 
     except Exception as e:
         meter.stop()
         run.error = str(e)
         run.done = True
+        _finish_build(run, run.error)
         run.push({"type": "failed", "message": run.error})
 
     finally:
@@ -361,19 +549,17 @@ def _start_turn(request: ChatRequest) -> dict[str, Any]:
     if mode == "build" and intensity != "super":
         intensity = "normal"
 
-    _append(thread_id, {"role": "user", "text": text, "mode": mode, "ts": time.time()})
-
     query = text
+    build: Build | None = None
+    fresh = False
     if mode == "build":
-        previous = _previous_sections(thread_id)
-        if previous:
-            # A rebuild starts a clean page, so tell the planner what was there.
-            query = (
-                text
-                + chr(10)
-                + chr(10)
-                + ("The page currently has these sections: " + ", ".join(previous) + ".")
-            )
+        # A build gets its own tab and its own conversation; editing an open tab
+        # is the only way one page's sections reach another request.
+        build, fresh = _open_build(request.build_id, text)
+        thread_id = build.thread_id
+        query = build.request
+
+    _append(thread_id, {"role": "user", "text": text, "mode": mode, "ts": time.time()})
 
     if mode == "research":
         count = 10 if intensity == "deep" else 4
@@ -390,6 +576,8 @@ def _start_turn(request: ChatRequest) -> dict[str, Any]:
         mode=mode,
         subtasks=count,
         intensity=intensity,
+        build_id=build.id if build else "",
+        fresh=fresh,
     )
     RUNS[run.id] = run
     while len(RUNS) > MAX_RUNS:
@@ -400,8 +588,15 @@ def _start_turn(request: ChatRequest) -> dict[str, Any]:
 
     reset_session()
     run.push({"type": "started", "query": text, "mode": mode})
+    if build is not None:
+        run.push({"type": "build", "build": build.as_dict(with_document=False)})
     run.task = asyncio.create_task(_drive(run))
-    return {"run_id": run.id, "thread_id": thread_id, "mode": mode}
+    return {
+        "run_id": run.id,
+        "thread_id": thread_id,
+        "mode": mode,
+        "build": build.as_dict(with_document=False) if build else None,
+    }
 
 
 async def _event_stream(run: Run) -> AsyncIterator[str]:
@@ -437,6 +632,7 @@ def create_app() -> FastAPI:
     """Wire the dashboard routes."""
     _load_chats()
     _load_state()
+    _load_builds()
 
     app = FastAPI(title="Multi-agent dashboard", docs_url=None, redoc_url=None)
     app.add_api_route("/", index, methods=["GET"])
@@ -445,6 +641,8 @@ def create_app() -> FastAPI:
     app.add_api_route("/api/chat/{thread_id}", history, methods=["GET"])
     app.add_api_route("/api/chat/{thread_id}", delete_thread, methods=["DELETE"])
     app.add_api_route("/api/threads", threads, methods=["GET"])
+    app.add_api_route("/api/builds", builds, methods=["GET"])
+    app.add_api_route("/api/builds/{build_id}", delete_build, methods=["DELETE"])
     app.add_api_route("/api/stream/{run_id}", stream, methods=["GET"])
     app.add_api_route("/api/cancel/{run_id}", cancel, methods=["POST"])
     app.add_api_route("/api/notes", notes, methods=["GET"])
@@ -489,6 +687,11 @@ async def delete_thread(thread_id: str) -> dict[str, Any]:
     _save_chats()
     if THREAD_STATE.pop(thread_id, None) is not None:
         _save_state()
+    for build_id in [key for key, build in BUILDS.items() if build.thread_id == thread_id]:
+        del BUILDS[build_id]
+        if build_id in BUILD_ORDER:
+            BUILD_ORDER.remove(build_id)
+        _save_builds()
 
     from src.graph.workflow import checkpointer_scope, reset_thread
 
@@ -517,6 +720,23 @@ async def threads() -> dict[str, Any]:
         )
     rows.sort(key=lambda row: row["updated"], reverse=True)
     return {"threads": rows}
+
+
+async def builds() -> dict[str, Any]:
+    """Every build's tab, oldest first, each with the page it holds."""
+    return {
+        "builds": [BUILDS[build_id].as_dict() for build_id in BUILD_ORDER if build_id in BUILDS]
+    }
+
+
+async def delete_build(build_id: str) -> dict[str, Any]:
+    """Close one tab and forget the page it held."""
+    if BUILDS.pop(build_id, None) is None:
+        return {"deleted": False}
+    if build_id in BUILD_ORDER:
+        BUILD_ORDER.remove(build_id)
+    _save_builds()
+    return {"deleted": True}
 
 
 async def stream(run_id: str) -> StreamingResponse:

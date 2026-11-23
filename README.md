@@ -441,8 +441,19 @@ listing which agent is working right now plus every tool call as it happens.
 - **Build** — the middle column *becomes* the page being written. **Hold 1s** for
   *Super build* (red): more sections and each writer told to go all out: sections appear
   as placeholders, fill in as workers finish, and an agent cursor hovers over the
-  one being written. The composer underneath stays live, so "make the hero
-  bolder" is a follow-up that rebuilds it.
+  one being written.
+
+Every build gets its own tab above the preview and its own conversation thread, so a
+new page never overwrites or inherits an older one; the tab strip and the pages it
+holds survive a refresh (`dashboard-builds.json`). To change a page instead of
+replacing it, press **Edit this page** — that is the one path that tells the planner
+which sections the page already has.
+
+A build reports what it is doing while it does it: the status line names the phase
+(planning, writing section 2 of 5, reviewing, fixing), a checklist lists every
+planned section as pending, writing or done, the elapsed seconds keep moving, and the
+last line says how it ended — `built 5 sections in 42s`, or `stopped after 2 of 5
+sections`.
 
 Follow-ups continue the same thread, and the workflow reads earlier turns from its
 checkpointer, so memory survives messages and restarts (`chats.json` is the

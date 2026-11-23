@@ -275,12 +275,101 @@
   }
   .preview-stage.on { display: flex; }
   .canvas.building .log { display: none; }
+
+  /* one tab per page, so a new build never overwrites an old one */
+  .build-tabs {
+    display: flex; align-items: center; gap: 3px; overflow-x: auto;
+    padding: .38rem .6rem; border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .build-tabs:empty { display: none; }
+  .build-tabs::-webkit-scrollbar { height: 4px; }
+  .build-tab {
+    display: inline-flex; align-items: center; gap: .38rem; flex: none;
+    max-width: 15rem; border: 1px solid transparent; background: transparent;
+    color: var(--muted); border-radius: 7px; padding: .34rem .55rem;
+    font: 500 12px/1 inherit; cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .build-tab:hover { background: var(--panel-2); color: var(--text); }
+  .build-tab[aria-selected="true"] {
+    background: #22304a; border-color: #33455e; color: var(--text);
+  }
+  .build-tab .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none;
+    transition: background var(--med) var(--ease);
+  }
+  .build-tab[data-state="planning"] .dot,
+  .build-tab[data-state="writing"] .dot,
+  .build-tab[data-state="reviewing"] .dot,
+  .build-tab[data-state="fixing"] .dot { background: var(--accent); animation: pulse 1.6s infinite; }
+  .build-tab[data-state="built"] .dot { background: var(--ok); }
+  .build-tab[data-state="failed"] .dot { background: var(--bad); }
+  .build-tab .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .build-tab .close {
+    border: 0; background: transparent; color: var(--faint); cursor: pointer;
+    font: 600 12px/1 var(--mono); padding: 0 .05rem; opacity: 0;
+    transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .build-tab:hover .close, .build-tab:focus-within .close { opacity: 1; }
+  .build-tab .close:hover { color: var(--text); }
+  .build-new {
+    display: inline-flex; align-items: center; gap: .3rem; flex: none;
+    border: 1px dashed var(--line); background: transparent; color: var(--muted);
+    border-radius: 7px; padding: .32rem .55rem; font: 500 11.5px/1 inherit; cursor: pointer;
+    transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+  }
+  .build-new:hover { color: var(--text); border-color: #33455e; }
+
   .preview-bar {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between; gap: .6rem;
     padding: .45rem .8rem; border-bottom: 1px solid var(--line);
     font: 500 11px/1 var(--mono); color: var(--muted);
   }
-  .preview-bar .state { color: var(--accent); transition: color var(--med) var(--ease); }
+  .preview-bar .state {
+    display: inline-flex; align-items: center; gap: .4rem;
+    color: var(--accent); transition: color var(--med) var(--ease);
+  }
+  .preview-bar .state[data-state="built"] { color: var(--ok); }
+  .preview-bar .state[data-state="failed"] { color: var(--bad); }
+  .preview-bar .state[data-state="planning"]::before,
+  .preview-bar .state[data-state="writing"]::before,
+  .preview-bar .state[data-state="reviewing"]::before,
+  .preview-bar .state[data-state="fixing"]::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor; animation: pulse 1.2s infinite;
+  }
+  .preview-bar .elapsed { color: var(--faint); flex: none; }
+  .preview-bar .acts { display: flex; align-items: center; gap: .45rem; flex: none; }
+  .preview-bar .edit-page {
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+    border-radius: 7px; padding: .28rem .55rem; cursor: pointer;
+    font: 600 10.5px/1 var(--mono); letter-spacing: .04em;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
+      border-color var(--fast) var(--ease);
+  }
+  .preview-bar .edit-page:hover:not(:disabled) { color: var(--text); border-color: #33455e; }
+  .preview-bar .edit-page[aria-pressed="true"] {
+    background: var(--accent); color: #06101f; border-color: var(--accent);
+  }
+  .preview-bar .edit-page:disabled { opacity: .4; cursor: default; }
+
+  /* the shape of the work, before any of it lands */
+  .build-checklist {
+    display: flex; flex-wrap: wrap; gap: .35rem; list-style: none;
+    margin: 0; padding: .5rem .8rem; border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .build-checklist:empty { display: none; }
+  .build-checklist li {
+    display: inline-flex; align-items: center; gap: .38rem;
+    font: 500 11px/1 var(--mono); color: var(--faint);
+    border: 1px solid var(--line); border-radius: 999px; padding: .3rem .55rem;
+    transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+  }
+  .build-checklist li[data-state="writing"] { color: var(--accent); border-color: #2f4c74; }
+  .build-checklist li[data-state="done"] { color: var(--ok); border-color: #2b4a41; }
+  .build-checklist .mark { width: 8px; text-align: center; }
 
   .view-switch {
     display: flex; gap: 2px;
@@ -304,14 +393,15 @@
   .preview-stage.code .preview-frame { display: none; }
   .preview-stage.code .preview-code { display: block; }
   .preview-frame { flex: 1; width: 100%; border: 0; background: #0b0f16; opacity: .9; transition: opacity var(--med) var(--ease); }
-  .preview-stage { background: #070a10; }
+  .preview-stage { background: #070a10; position: relative; }
+  /* Only ever on an empty stage: a finished page must carry no overlay, not
+     even one fading out over it. */
   .preview-stage::after {
     content: "The page will build here";
-    position: absolute; inset: 0; display: grid; place-items: center;
+    position: absolute; inset: 0; display: none; place-items: center;
     font: 12px/1 var(--mono); color: var(--faint); pointer-events: none;
-    opacity: 0; transition: opacity var(--med) var(--ease);
   }
-  .preview-stage.empty::after { opacity: .7; }
+  .preview-stage.empty::after { display: grid; }
   .preview-frame.fresh { animation: fade var(--med) var(--ease) both; }
 
   /* composer */
@@ -604,13 +694,24 @@
     </div>
 
     <div class="preview-stage" id="preview-stage" data-note="preview-stage" data-label="Live preview">
+      <div class="build-tabs" id="build-tabs" role="tablist" aria-label="Built pages"
+           data-note="build-tabs" data-label="Build tabs"></div>
       <div class="preview-bar">
-        <span class="state" id="preview-state">waiting for the planner</span>
-        <div class="view-switch" role="group" aria-label="View">
-          <button id="view-preview" aria-pressed="true" data-note="view-preview" data-label="Preview toggle">Preview</button>
-          <button id="view-code" aria-pressed="false" data-note="view-code" data-label="Code toggle">Code</button>
+        <span class="state" id="preview-state" data-state="empty"
+              data-note="preview-state" data-label="Build status">waiting for the planner</span>
+        <span class="elapsed" id="build-elapsed"></span>
+        <div class="acts">
+          <button class="edit-page" id="build-edit" aria-pressed="false"
+                  title="Send the next message to this page instead of starting a new one"
+                  data-note="build-edit" data-label="Edit this page">Edit this page</button>
+          <div class="view-switch" role="group" aria-label="View">
+            <button id="view-preview" aria-pressed="true" data-note="view-preview" data-label="Preview toggle">Preview</button>
+            <button id="view-code" aria-pressed="false" data-note="view-code" data-label="Code toggle">Code</button>
+          </div>
         </div>
       </div>
+      <ol class="build-checklist" id="build-checklist"
+          data-note="build-checklist" data-label="Section checklist"></ol>
       <iframe class="preview-frame" id="preview" title="Live page preview" sandbox="allow-scripts"></iframe>
       <pre class="preview-code" id="preview-code" data-note="preview-code" data-label="Generated HTML"></pre>
     </div>
@@ -928,19 +1029,249 @@
     applyView();
   });
 
+  // ── builds: one tab and one conversation per page ──────────────
+  // A build keeps its own document, its own section checklist and its own
+  // conversation thread, so a new page never inherits an older one's sections.
+  const builds = new Map();      // id -> the build the server last reported
+  const buildStarted = new Map(); // id -> when this browser first saw it running
+  let activeBuild = "";          // the tab in front
+  let editing = false;           // the next message edits this page
+
+  function buildState(build) {
+    if (!build) return "empty";
+    if (build.failed) return "failed";
+    if (build.done) return "built";
+    return build.phase || "planning";
+  }
+
+  function applyBuild(incoming) {
+    const previous = builds.get(incoming.id) || {};
+    const build = { ...previous, ...incoming };
+    if (typeof incoming.document !== "string") build.document = previous.document || "";
+    builds.set(build.id, build);
+    if (!build.done) {
+      if (!buildStarted.has(build.id)) buildStarted.set(build.id, Date.now());
+    } else {
+      buildStarted.delete(build.id);
+    }
+    if (build.id === activeBuild) paintBuild(build);
+    renderBuildTabs();
+    watchRunningBuilds();
+    return build;
+  }
+
+  // A page refreshed mid-build has no stream of its own any more, so a running
+  // build is followed by asking the server what it has until it stops.
+  let buildPoll = null;
+
+  function watchRunningBuilds() {
+    const running = [...builds.values()].some((build) => build.running);
+    if (!running || source) {
+      // The run's own event stream is the fast path while it is open.
+      if (buildPoll) {
+        clearInterval(buildPoll);
+        buildPoll = null;
+      }
+      return;
+    }
+    if (buildPoll) return;
+    buildPoll = setInterval(async () => {
+      try {
+        const response = await fetch("/api/builds");
+        const { builds: rows } = await response.json();
+        for (const row of rows) applyBuild(row);
+      } catch { /* the run's own stream is the fast path when there is one */ }
+    }, 1500);
+  }
+
+  function activeBuildRow() {
+    return activeBuild ? builds.get(activeBuild) || null : null;
+  }
+
+  function renderBuildTabs() {
+    const host = $("build-tabs");
+    host.textContent = "";
+    for (const build of builds.values()) {
+      const tab = document.createElement("div");
+      tab.className = "build-tab";
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(build.id === activeBuild));
+      tab.dataset.state = buildState(build);
+      tab.dataset.build = build.id;
+
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = build.title || "Untitled page";
+      label.title = build.text || build.title || "";
+      const close = document.createElement("button");
+      close.className = "close";
+      close.textContent = "×";
+      close.title = "Close this page";
+      close.setAttribute("aria-label", "Close " + (build.title || "page"));
+
+      tab.append(dot, label, close);
+      tab.addEventListener("click", () => selectBuild(build.id));
+      close.addEventListener("click", (event) => {
+        event.stopPropagation();
+        closeBuild(build.id);
+      });
+      host.appendChild(tab);
+    }
+
+    const add = document.createElement("button");
+    add.className = "build-new";
+    add.id = "build-new";
+    add.textContent = "+ New build";
+    add.title = "Start another page in its own tab";
+    add.addEventListener("click", startNewBuild);
+    host.appendChild(add);
+  }
+
+  function paintBuild(build) {
+    const state = buildState(build);
+    const line = $("preview-state");
+    line.dataset.state = state;
+    line.textContent = build ? build.status || "planning" : "describe a page to start";
+
+    const list = $("build-checklist");
+    list.textContent = "";
+    for (const item of (build && build.checklist) || []) {
+      const row = document.createElement("li");
+      row.dataset.state = item.state;
+      row.dataset.index = String(item.index);
+      const mark = document.createElement("span");
+      mark.className = "mark";
+      mark.textContent = item.state === "done" ? "✓" : item.state === "writing" ? "▸" : "·";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = item.name;
+      row.append(mark, name);
+      list.appendChild(row);
+    }
+
+    $("build-elapsed").textContent =
+      build && !build.running && build.seconds ? clock(build.seconds) : "";
+    $("build-edit").disabled = !build || !build.document;
+  }
+
+  // The elapsed number is what tells a person the build is still alive: whole
+  // seconds once they matter, a decimal before, so it never reads as a stuck 0.
+  function clock(seconds) {
+    const value = Math.max(0, seconds);
+    return value >= 10 ? Math.round(value) + "s" : value.toFixed(1) + "s";
+  }
+
+  function tickBuild() {
+    const build = activeBuildRow();
+    if (!build || !build.running) return;
+    const started = buildStarted.get(build.id);
+    if (!started) return;
+    $("build-elapsed").textContent = clock((Date.now() - started) / 1000);
+  }
+
+  setInterval(tickBuild, 500);
+
+  function showDocument(document_) {
+    const frame = $("preview");
+    lastHtml = document_;
+    if (frame.srcdoc !== document_) frame.srcdoc = document_;
+    $("preview-code").textContent = document_;
+    $("preview-stage").classList.toggle("empty", !document_);
+  }
+
+  function selectBuild(id) {
+    const build = builds.get(id);
+    if (!build) return;
+    activeBuild = id;
+    editing = false;
+    localStorage.setItem("agx-build", id);
+    renderBuildTabs();
+    applyEditing();
+    paintBuild(build);
+    showPreview(true);
+    showDocument(build.document || "");
+    if (build.thread_id && build.thread_id !== threadId) openThread(build.thread_id);
+  }
+
+  async function closeBuild(id) {
+    builds.delete(id);
+    buildStarted.delete(id);
+    if (activeBuild === id) {
+      activeBuild = "";
+      editing = false;
+      const remaining = [...builds.keys()];
+      applyEditing();
+      if (remaining.length) {
+        selectBuild(remaining[remaining.length - 1]);
+      } else {
+        $("preview-stage").classList.remove("empty");
+        showDocument("");
+        paintBuild(null);
+        renderBuildTabs();
+      }
+    } else {
+      renderBuildTabs();
+    }
+    await fetch(`/api/builds/${id}`, { method: "DELETE" }).catch(() => {});
+  }
+
+  function startNewBuild() {
+    activeBuild = "";
+    editing = false;
+    applyEditing();
+    renderBuildTabs();
+    paintBuild(null);
+    $("preview-stage").classList.add("empty");
+    showDocument("");
+    $("input").focus();
+  }
+
+  function applyEditing() {
+    $("build-edit").setAttribute("aria-pressed", String(editing));
+    const build = activeBuildRow();
+    $("build-edit").disabled = !build || !build.document;
+    if (mode === "build") {
+      $("input").placeholder = editing
+        ? "Ask for a change to this page…"
+        : "Describe a new page — it opens its own tab…";
+    }
+  }
+
+  $("build-edit").addEventListener("click", () => {
+    if (!activeBuildRow()) return;
+    editing = !editing;
+    applyEditing();
+    $("input").focus();
+  });
+
+  async function loadBuilds() {
+    try {
+      const response = await fetch("/api/builds");
+      const { builds: rows } = await response.json();
+      for (const row of rows) applyBuild(row);
+      renderBuildTabs();
+      const remembered = localStorage.getItem("agx-build");
+      const target = builds.has(remembered || "")
+        ? remembered
+        : [...builds.keys()].pop() || "";
+      if (target) selectBuild(target);
+      else applyEditing();
+    } catch {
+      applyEditing();
+    }
+  }
+
   function setPreview(html, sections) {
+    const build = activeBuildRow();
+    if (build) build.document = html;
     const frame = $("preview");
     showPreview(true);
     frame.classList.remove("fresh");
     void frame.offsetWidth;
-    lastHtml = html;
-    frame.srcdoc = html;
+    showDocument(html);
     frame.classList.add("fresh");
-    $("preview-stage").classList.remove("empty");
-    $("preview-code").textContent = html;
-    $("preview-state").textContent = sections
-      ? "building · " + sections + (sections === 1 ? " section" : " sections")
-      : "planning sections";
   }
 
   function focusSection(key, label, status) {
@@ -970,6 +1301,8 @@
         feedRow(event);
       } else if (event.type === "artifact") {
         setPreview(event.html, event.sections || 0);
+      } else if (event.type === "build") {
+        applyBuild(event.build);
       } else if (event.type === "state") {
         if (event.artifact) setPreview(event.artifact, event.sections || 0);
         if (event.answer && mode !== "build") {
@@ -996,8 +1329,9 @@
       $("send").disabled = false;
       if (kind !== "ok" && payload) { showPlain(reply, payload); reply.body.style.color = "#f0b3ad"; }
       if (kind === "ok" && mode === "build") {
-        $("preview-state").textContent = "built";
+        // The server's own build event carries the closing line.
         showPlain(reply, "");
+        applyEditing();
       }
       if (kind === "ok" && mode !== "build" && looksLikeDocument(reply.text)) {
         // Late arrival: the page came in with the answer, not a step.
@@ -1054,7 +1388,12 @@
 
     if (mode === "build") {
       showPreview(true);
-      $("preview-state").textContent = "asking the planner";
+      // A new page opens its own tab; only an explicit edit reuses this one.
+      if (!editing || !activeBuildRow()) {
+        const line = $("preview-state");
+        line.dataset.state = "planning";
+        line.textContent = "asking the planner";
+      }
     }
     if (call.active && options.spoken) setCallPhase("thinking", "thinking");
 
@@ -1070,10 +1409,29 @@
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ thread_id: threadId, text, mode, subtasks: 3, intensity }),
+        body: JSON.stringify({
+          thread_id: threadId,
+          text,
+          mode,
+          subtasks: 3,
+          intensity,
+          build_id: mode === "build" && editing ? activeBuild : "",
+        }),
       });
       const data = await response.json();
       if (data.error) { showPlain(reply, data.error); $("send").disabled = false; return; }
+      if (data.thread_id && data.thread_id !== threadId) {
+        // A build answers with the conversation it opened for this page.
+        threadId = data.thread_id;
+        localStorage.setItem("agx-thread-" + mode, threadId);
+      }
+      if (data.build) {
+        activeBuild = data.build.id;
+        localStorage.setItem("agx-build", activeBuild);
+        applyBuild(data.build);
+      }
+      editing = false;
+      applyEditing();
       listen(data.run_id, reply);
     } catch {
       showPlain(reply, "Could not reach the dashboard server.");
@@ -1193,9 +1551,22 @@
       if (message.cost) showCost(reply, message.cost);
     }
 
+    // A build's conversation belongs to its tab: show the page that tab holds.
+    const build = [...builds.values()].find((item) => item.thread_id === id);
+    if (build) {
+      activeBuild = build.id;
+      editing = false;
+      localStorage.setItem("agx-build", activeBuild);
+      renderBuildTabs();
+      applyEditing();
+      paintBuild(build);
+      showPreview(true);
+      showDocument(build.document || "");
+    }
+
     // Whatever this conversation produced comes back with it.
     const saved = state || {};
-    if (saved.artifact) {
+    if (saved.artifact && !build) {
       lastHtml = saved.artifact;
       $("preview").srcdoc = saved.artifact;
       $("preview-code").textContent = saved.artifact;
@@ -1277,6 +1648,8 @@
       cleanActivity();
     }
 
+    if (next === "build") loadBuilds();
+
     $("input").placeholder =
       next === "agent" ? "Tell the agent what to do…"
       : next === "build" ? (intensity === "super" ? "Super build — describe the page, go big…" : "Ask for a change to the page…")
@@ -1343,11 +1716,12 @@
     threadId = "";
     localStorage.removeItem("agx-thread-" + mode);
     $("thread-col").textContent = "";
-    // A fresh conversation must not inherit the last page.
-    $("preview").srcdoc = "";
-    $("preview-state").textContent = mode === "build" ? "describe a page to start" : "";
-    lastHtml = "";
-    $("preview-code").textContent = "";
+    // A fresh conversation must not inherit the last page; the open tabs stay.
+    if (mode === "build") startNewBuild();
+    else {
+      showDocument("");
+      lastHtml = "";
+    }
     const research = $("agents").querySelector('[data-role="research"]');
     if (research) research.remove();
     const empty = document.createElement("div");
@@ -2017,6 +2391,7 @@
 
   // ── boot ──────────────────────────────────────────────────────
   if (threadId) openThread(threadId);
+  if (mode === "build") loadBuilds();
   loadThreads();
   loadNotes();
 })();
