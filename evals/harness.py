@@ -70,6 +70,22 @@ measured run produce text instead of silence.
 CASE_TIMEOUT_SECONDS = 300.0
 """Wall-clock cap on one case, so one stalled gateway call cannot hang the suite."""
 
+UNREACHABLE = (
+    "could not reach a model",
+    "http 429",
+    "429",
+    "rate limit",
+    "empty content",
+    "timed out",
+    "connection",
+)
+"""What a failure looks like when the model never answered.
+
+A pooled gateway running out of keys is not a bad answer. Scoring it as one
+would report a quality collapse that never happened, and a baseline taken during
+one would be worthless, so these cases are reported as unmeasured instead.
+"""
+
 
 @dataclass(frozen=True)
 class Case:
@@ -210,12 +226,14 @@ class CaseResult:
     passed: bool
     checks: list[dict[str, Any]]
     metrics: dict[str, Any]
+    status: str = "graded"
 
     def as_dict(self) -> dict[str, Any]:
         """The JSON record the runner persists."""
         return {
             "id": self.id,
             "mode": self.mode,
+            "status": self.status,
             "score": round(self.score, 3),
             "passed": self.passed,
             "checks": self.checks,
@@ -228,6 +246,7 @@ async def evaluate(
     make_model: Callable[[Meter], Any],
     timeout: float = CASE_TIMEOUT_SECONDS,
     after_each: Callable[[list[CaseResult]], None] | None = None,
+    pause: float = 0.0,
 ) -> list[CaseResult]:
     """Run every case in turn and grade it.
 
@@ -242,6 +261,10 @@ async def evaluate(
         results.append(await run_case(case, make_model(meter), meter, timeout=timeout))
         if after_each is not None:
             after_each(results)
+        if pause and len(results) < len(cases):
+            # A pooled gateway rate-limits by how fast keys are spent, not by
+            # how many cases there are, so a paced run measures more of them.
+            await asyncio.sleep(pause)
     return results
 
 
@@ -262,14 +285,39 @@ async def run_case(case: Case, model: Any, meter: Meter, timeout: float) -> Case
 
     checks = score_case(case, state, error)
     earned = sum(1 for check in checks if check["passed"])
+    status = status_of(state, error, meter)
     return CaseResult(
         id=case.id,
         mode=case.mode,
-        score=earned / len(checks) if checks else 0.0,
-        passed=bool(checks) and earned == len(checks),
+        score=earned / len(checks) if checks and status != UNAVAILABLE_STATUS else 0.0,
+        passed=status == "graded" and bool(checks) and earned == len(checks),
         checks=checks,
         metrics=metrics_of(state, meter, seconds),
+        status=status,
     )
+
+
+UNAVAILABLE_STATUS = "unavailable"
+"""The case never got a model, so it has no score."""
+
+
+def status_of(state: AgentState | None, error: str | None, meter: Meter) -> str:
+    """Whether a case was graded, or whether no model was available to grade."""
+    if error is not None:
+        return UNAVAILABLE_STATUS if _unreachable(error) else "error"
+    if meter.calls == 0:
+        return UNAVAILABLE_STATUS
+    answered = (state.final_report if state else "") or ""
+    if state is not None and not answered.strip() and state.errors:
+        if all(_unreachable(str(item.get("error", ""))) for item in state.errors):
+            return UNAVAILABLE_STATUS
+    return "graded"
+
+
+def _unreachable(message: str) -> bool:
+    """Whether a failure message describes a model that never answered."""
+    lowered = message.lower()
+    return any(marker in lowered for marker in UNREACHABLE)
 
 
 async def _drive(case: Case, model: Any, thread_id: str) -> AgentState:
@@ -412,6 +460,7 @@ def metrics_of(state: AgentState | None, meter: Meter, seconds: float) -> dict[s
         "empty_replies": meter.empty_replies,
         "answer_words": len((answer or "").split()),
         "answer_chars": len(answer or ""),
+        "answer_excerpt": " ".join((answer or "").split())[:600],
         "abstained": bool(state is not None and state.context.get("verification") == "abstained"),
         "verdicts": verdict_counts(state),
         "errors": [str(item.get("error", ""))[:160] for item in (state.errors if state else [])][
@@ -422,16 +471,18 @@ def metrics_of(state: AgentState | None, meter: Meter, seconds: float) -> dict[s
 
 def summarize(results: Sequence[CaseResult]) -> dict[str, Any]:
     """The one-line verdict for a whole run."""
-    total = len(results)
+    graded = [result for result in results if result.status == "graded"]
     verdicts = {SUPPORTED: 0, UNSUPPORTED: 0, CONTRADICTED: 0}
-    for result in results:
+    for result in graded:
         for verdict, count in result.metrics["verdicts"].items():
             verdicts[verdict] = verdicts.get(verdict, 0) + count
     return {
-        "score": round(sum(r.score for r in results) / total, 3) if total else 0.0,
-        "cases": total,
-        "passed": sum(1 for result in results if result.passed),
-        "failed": [result.id for result in results if not result.passed],
+        "score": round(sum(r.score for r in graded) / len(graded), 3) if graded else 0.0,
+        "cases": len(graded),
+        "measured": len(results),
+        "passed": sum(1 for result in graded if result.passed),
+        "failed": [result.id for result in graded if not result.passed],
+        "unmeasured": [result.id for result in results if result.status != "graded"],
         "seconds": round(sum(result.metrics["seconds"] for result in results), 1),
         "model_calls": sum(result.metrics["model_calls"] for result in results),
         "tokens": sum(result.metrics["tokens"] for result in results),
@@ -463,7 +514,9 @@ def compare(results: Sequence[CaseResult], baseline: dict[str, Any]) -> dict[str
     filtered subset against a full baseline cannot invent a change.
     """
     then = {
-        str(item.get("id")): float(item.get("score", 0.0)) for item in baseline.get("results", [])
+        str(item.get("id")): float(item.get("score", 0.0))
+        for item in baseline.get("results", [])
+        if item.get("status", "graded") == "graded"
     }
     rows: list[dict[str, Any]] = []
     regressed: list[str] = []
@@ -475,13 +528,13 @@ def compare(results: Sequence[CaseResult], baseline: dict[str, Any]) -> dict[str
             "now": round(result.score, 3),
             "delta": None,
         }
-        if before is not None:
+        if before is not None and result.status == "graded":
             row["delta"] = round(result.score - before, 3)
             if result.score < before:
                 regressed.append(result.id)
         rows.append(row)
 
-    shared = [row for row in rows if row["then"] is not None]
+    shared = [row for row in rows if row["delta"] is not None]
     return {
         "rows": rows,
         "regressed": regressed,

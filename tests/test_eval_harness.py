@@ -165,6 +165,56 @@ class TestBaselineComparison:
         assert comparison["overall_now"] == 1.0
 
 
+class TestUnmeasuredCases:
+    """A gateway refusal is not a bad answer, and must never be scored as one."""
+
+    def test_a_model_that_never_answered_is_unmeasured(self):
+        error = "RuntimeError: Planner could not reach a model after 4 attempts (keypool: HTTP 429)"
+
+        assert harness.status_of(None, error, harness.Meter()) == harness.UNAVAILABLE_STATUS
+
+    def test_zero_model_calls_is_unmeasured(self):
+        assert harness.status_of(AgentState(), None, harness.Meter()) == "unavailable"
+
+    def test_an_answered_run_is_graded(self):
+        state = AgentState(final_report="An answer.")
+
+        assert harness.status_of(state, None, harness.Meter(calls=3)) == "graded"
+
+    def test_an_empty_answer_with_only_unreachable_errors_is_unmeasured(self):
+        state = AgentState()
+        state.record_error("synthesizer", "Synthesizer could not reach a model after 4 attempts")
+
+        assert harness.status_of(state, None, harness.Meter(calls=1)) == "unavailable"
+
+    def test_an_agent_error_beside_a_real_answer_is_still_graded(self):
+        state = AgentState(final_report="An answer.")
+        state.record_error("worker.0", "could not reach a model")
+
+        assert harness.status_of(state, None, harness.Meter(calls=2)) == "graded"
+
+    def test_the_summary_scores_only_measured_cases(self):
+        graded = result("a", 1.0)
+        unmeasured = result("b", 0.0)
+        unmeasured.status = harness.UNAVAILABLE_STATUS
+
+        summary = harness.summarize([graded, unmeasured])
+
+        assert summary["score"] == 1.0
+        assert summary["cases"] == 1
+        assert summary["unmeasured"] == ["b"]
+
+    def test_an_unmeasured_case_is_not_a_regression(self):
+        baseline = harness.report_payload([result("a", 1.0)], "live", "m")
+        current = result("a", 1.0)
+        current.status = harness.UNAVAILABLE_STATUS
+
+        comparison = harness.compare([current], baseline)
+
+        assert comparison["regressed"] == []
+        assert comparison["compared"] == 0
+
+
 class TestCaseFile:
     """The case file must stay gradeable: known checks, known modes, unique ids."""
 
