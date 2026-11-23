@@ -207,6 +207,8 @@ def main() -> None:
     from src.dashboard.server import main as serve_dashboard
 
     settings.demo_mode = True
+    # The settings sheet and /health read this, so they name what is answering.
+    settings.llm_provider = DEMO_PROVIDER
     print(DEMO_BANNER)
     serve_dashboard()
 

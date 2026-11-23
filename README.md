@@ -1,70 +1,219 @@
-# Multi-Agent System: LangGraph + MCP + A2A + OTel
+# Multi-Agent System
 
-A production-ready multi-agent system that feels like a single agent but operates as a coordinated team of specialized agents.
+An agent team that runs on your own machine. LangGraph for the graph and the
+checkpointer, MCP for the tools, A2A to be called as a remote agent, and
+OpenTelemetry for traces — with a local dashboard over all of it.
+
+Five graphs share one typed state, one tool set and one retry policy. Pick the one
+that matches the task:
+
+| Mode | What actually runs | How to reach it |
+| --- | --- | --- |
+| **Pipeline** | researcher → analyst → the validator grades every claim → writer, or an honest abstain | the CLI default |
+| **Team** | an orchestrator plans subtasks, LangGraph's `Send` runs one worker per subtask at once, a synthesizer merges them | `--team` |
+| **Research** | a planner writes the questions, one finder per question, then one sourced report. Deep research adds a gap analyst and a second wave of finders | dashboard **Research** (hold for deep) |
+| **Build** | outline → research → design → one writer per section → deterministic assembly → review → rewrite only the flagged sections | `--build`, dashboard **Build** |
+| **Agent** | one agent working the task end to end with tools, and the desktop when it is enabled | dashboard **Agent** (the default) |
+
+## See it run in one command, with no key
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows;  source .venv/bin/activate elsewhere
+pip install -e .
+multi-agent-demo
+```
+
+It opens the dashboard at `http://127.0.0.1:8765`. Every model call is answered
+from the script in [`src/demo.py`](src/demo.py), so the graph, the validator, the
+checkpointer, the cost meter and the whole interface are real while the words are
+scripted — nothing leaves the machine and nothing is billed. Ask it anything; try
+**Research** and **Build** to watch the fan-out modes. On Windows,
+`start-demo.bat` does the same thing on a double-click.
+
+The CLI shows the same scripted run without a browser:
+
+```bash
+DEMO_MODE=true python -m src.main "What does this system do?" --fresh   # set DEMO_MODE=true on Windows cmd
+```
+
+## Quick start, with a real model
+
+The system talks to an OpenAI-compatible endpoint. The default is a KeyPool
+gateway on `127.0.0.1:8787`; any of the providers in `.env.example` works.
+
+```bash
+# 1. Dependencies — the same editable install as above, plus the dev tools
+pip install -e ".[dev]"
+
+# 2. Configuration: .env is read from the project root, wherever you run from
+copy .env.example .env          # macOS/Linux: cp .env.example .env
+#    then set KEYPOOL_API_KEY (or GROQ_API_KEY, OPENAI_API_KEY, ...)
+
+# 3. Check the chain answers before spending a run
+multi-agent --providers
+
+# 4. First answer
+python -m src.main "What changed about LangGraph checkpointing in 2026?"
+```
+
+`pip install -e .` puts `multi-agent`, `multi-agent-dashboard`,
+`multi-agent-demo` and `multi-agent-mcp` on your PATH, so none of them depends on
+the working directory.
+
+**Or run the checks instead of an answer.** The suite is credential-free and takes
+a few seconds, and `make` is optional — these are the commands behind it:
+
+```bash
+ruff check src/ tests/ evals/          # lint
+ruff format --check src/ tests/ evals/ # formatting
+mypy src/ evals/                       # types
+python -m pytest tests/ -q             # 226 tests, no key, no network
+python -m evals.run --stub             # the eval harness, scripted
+```
+
+`make lint`, `make typecheck`, `make test` and `make verify` run the same commands
+if you have make.
+
+## What verification actually checks
+
+Pipeline mode does not take the researcher's word for anything. After research and
+analysis, the validator grades every claim with one model call per pass, handing the
+model the text the claim's source actually returned:
+
+- `supported` — the fetched source text says it
+- `unsupported` — the source is silent, off-topic, or nothing was ever fetched
+- `contradicted` — the source says something incompatible with the claim
+
+The grade decides the run rather than decorating it. A contradicted claim never
+reaches the writer. An unsupported one reaches it labelled `UNVERIFIED`, and the
+answer carries a provenance footer naming it. If the sources contradict *every*
+claim, the graph takes the `abstain` edge and never runs the writer: the run ends by
+saying it could not verify the evidence. A grade the parser cannot read counts as
+unverified, so the failure mode is a missing grade, never a false pass.
+
+**What it costs:** two extra small completions per pipeline run, one for the
+findings and one for the analysis — in one measured run 4,066 prompt and 208
+completion tokens together, about 3 seconds of a 31-second run. Verdict calls ask
+the gateway to skip reasoning, because a pooled reasoning model otherwise spends the
+whole completion budget thinking and returns no verdict at all. The mechanical detail
+is under [How a claim is verified](#how-a-claim-is-verified).
+
+## What a run costs
+
+Every run ends with one line, and the same numbers ride along in the dashboard:
+
+```
+Cost:              5 model calls · 1.8k tokens (1.6k in, 212 out) · 0.1s · slowest Validator
+```
+
+That is model calls (not retries — a retry inside a call is still one call), the
+tokens the provider reported, wall time, the slowest agent, and a count of JSON
+repairs and JSON failures when either is non-zero. `evals/last.json` records the same
+figures per case.
+
+## Evals: what the answers are worth
+
+`python -m pytest` proves the plumbing. [`evals/cases.json`](evals/cases.json) scores
+what the plumbing produces: fifteen cases across pipeline, team and build, each
+naming properties a good answer must have and the fabrications it must not contain.
+
+```bash
+python -m evals.run                    # scripted suite: no key, no gateway, no network
+python -m evals.run --list             # the cases and why each one exists
+python -m evals.run --live             # the fifteen cases against your gateway
+python -m evals.run --live --case pipeline-stays-brief
+```
+
+A row reads: `score` is checks passed / checks asked, `calls` is model responses,
+`secs` the wall time, `verdicts` the validator's tally. A case passes only when every
+check passes, and a failed check is listed with what it actually saw. The scripted
+suite runs three scenarios through the real graph — a grounded answer that must pass,
+a fabricated one that must fail, and a contradicted one that must abstain — and
+selftests that the scorer discriminated between them. That is the piece CI runs on
+every push, which is why the gate stays credential-free. Live runs are written to
+`evals/last.json`, and `--save-baseline` makes a later regression a number instead of
+an opinion. Details, including what the checks cannot see, are under
+[Evals: scoring the answers](#evals-scoring-the-answers).
+
+## Watch the agents work
+
+Add `--cursor` to a run and every agent appears on screen: its own cursor, its own
+status chip with the current step (`thinking`, `web_search: langgraph checkpointing`,
+`done`). A three-subtask team draws three cursors.
+
+```bash
+python -m src.main "A landing page for a neighbourhood coffee shop" --build --cursor
+```
+
+Each action names what it aims at — `mouse_click(x, y, target="Search")`,
+`type_text(text, target="the address bar")` — so the pointer travels to the target,
+rings it, and names the action in words rather than tool names. Escape hides the
+overlay; the next action brings it back. `CURSOR_GLIDE_MS` and `CURSOR_SETTLE_MS`
+set the travel and settle timings. With the flag absent and `CURSOR_OVERLAY` unset,
+the overlay is a no-op.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    UNIFIED MULTI-AGENT SYSTEM                           │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │                    LANGGRAPH STATE GRAPH                        │   │
-│   │  TypedState + Reducers = SINGLE SHARED MEMORY                  │   │
-│   │  Checkpointer (Postgres) = Durability, Resume, Time-Travel     │   │
-│   │  Send API = Parallel Fan-out with Automatic Merge              │   │
-│   └────────────────────────────────────────────────────────────────┘   │
-│         │                    ▲                    ▲                    │
-│         ▼                    │                    │                    │
-│   ┌───────────┐        ┌───────────┐        ┌───────────┐            │
-│   │ RESEARCHER│        │  ANALYST  │        │  WRITER   │            │
-│   │  Agent    │        │  Agent    │        │  Agent    │            │
-│   └─────┬─────┘        └─────┬─────┘        └─────┬─────┘            │
-│         │                    │                    │                    │
-│         ▼                    ▼                    ▼                    │
-│   ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐     │
-│   │ MCP SERVER       │ │ A2A REMOTE       │ │ VALIDATOR        │     │
-│   │ (Web Search,     │ │ (External Agent) │ │ Agent            │     │
-│   │  GitHub, URLs)   │ │                  │ │                  │     │
-│   └──────────────────┘ └──────────────────┘ └──────────────────┘     │
-│                                                                         │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │              OTEL / LANGSMITH OBSERVABILITY                     │   │
-│   │  Full span hierarchy: app → session → agent → trace → span    │   │
-│   └────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
+Pipeline mode, the CLI default — including the `abstain` edge, which is the graph's
+one honest refusal:
+
+```mermaid
+flowchart TD
+    S([start]) --> R["researcher<br/>web_search · fetch_url · gather_sources"]
+    R --> A["analyst"]
+    R --> VF["validate findings<br/>one verdict per claim, against the fetched text"]
+    A --> VA["validate analysis"]
+    VF --> VA
+    VA -->|"not every claim contradicted"| W["writer<br/>never sees a contradicted claim"]
+    VA -->|"every claim contradicted"| X["abstain<br/>declines to answer"]
+    W --> E([answer])
+    X --> E
 ```
 
-## Features
+Team and research modes fan out with the `Send` API and fan back in:
 
-- **🧠 Unified State**: Single `TypedDict` state with reducers for automatic parallel merge
-- **💾 Durability**: every step is checkpointed to SQLite (or Postgres), so runs survive a crash and a thread remembers what you told it earlier
-- **⚡ Parallel Execution**: Research → Analyst + findings validation (parallel) → analysis validation → Writer, or an honest abstain when every finding was contradicted
-- **👥 Team Mode**: an orchestrator splits a task into subtasks and LangGraph's `Send` API fans them out to concurrent workers, which use the same tools as the MCP server, before one synthesizer merges the results
-- **🔧 MCP Tools**: Standardized tool access (web search, GitHub, URL fetch) via MCP
-- **🤝 A2A Protocol**: Expose agents as remote services, call external agents
-- **📊 Observability**: OpenTelemetry + LangSmith tracing with full span hierarchy
-- **✅ Verification Gates**: SAST, type checking, linting and tests gate a change; every run's claims are graded before the writer sees them
-- **🛡️ Hallucination Detection**: a model call per validation pass grades each finding against the text its source actually returned. Contradicted claims never reach the writer, unverified ones are labelled in the answer, and a run whose findings were all contradicted declines to answer. Cost: one extra small completion per pass (two in pipeline mode)
-
-## Quick Start
-
-```bash
-pip install -e ".[dev]"
-
-# Configure: .env is read from the project root, wherever you run from
-cp .env.example .env
-
-# Check the model chain before spending a run
-multi-agent --providers
-
-# Run
-multi-agent "Analyze the current state of AI agents in 2026"
+```mermaid
+flowchart LR
+    S([start]) --> P["plan"]
+    P -->|"Send, one per subtask"| W1["worker 1"]
+    P --> W2["worker 2"]
+    P --> WN["worker n"]
+    W1 --> Y["synthesize"]
+    W2 --> Y
+    WN --> Y
+    Y --> E([answer])
 ```
 
-`pip install -e .` also puts `multi-agent` and `multi-agent-mcp` on your PATH, so
-neither the CLI nor the MCP server depends on the working directory.
+```mermaid
+flowchart LR
+    R([start]) --> Q["plan questions"] --> F["finder per question"] --> P["report"]
+    P --> RE([sourced answer])
+```
+
+Deep research inserts the gap pass: `find → gaps → (refine | report)`, where `refine`
+is the same finder node with the questions the gap analyst found missing.
+
+Build mode is a loop rather than a single pass — the review rewrites only the
+sections it flagged, then the page is reassembled:
+
+```mermaid
+flowchart TD
+    B0([start]) --> B1["plan sections"] --> B2["research"] --> B3["designer<br/>theme"] --> B4["replan"]
+    B4 -->|"Send, one per section"| B5["section writers"]
+    B5 --> B6["assemble page"]
+    B6 --> B7["review"]
+    B7 -->|"flagged sections"| B8["rewrite those sections"] --> B6
+    B7 -->|"nothing flagged"| B9["report"] --> BE([page])
+```
+
+Agent mode is the small one: one node, one agent, as many tool rounds as the task
+needs, then an answer.
+
+Every mode shares `src/graph/state.py` (`AgentState` with reducers for the parallel
+merges), per-turn scoping so a resumed thread only shows the current turn's findings,
+and the checkpointer in `src/graph/workflow.py` — SQLite by default, Postgres if you
+set `DATABASE_URL`, in memory if you clear `CHECKPOINT_DB`.
 
 ## Local Mode (Ollama, LM Studio, LocalAI)
 
@@ -77,7 +226,7 @@ LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1
 LOCAL_LLM_MODEL=llama3.2
 
 # Run
-make run QUERY="Analyze AI agents"
+python -m src.main "Analyze AI agents"      # or: make run QUERY="Analyze AI agents"
 ```
 
 **Ollama setup:**
@@ -181,23 +330,26 @@ print(router.provider_names())  # ['keypool', 'openrouter', 'groq', 'google', 'c
 
 ## Usage
 
-### Two Modes
+### Choosing a mode
 
-**Pipeline mode** (default) is a fixed research → analysis → validation → writing
-chain. It suits questions that need sources, fact-checking and a written report.
-
-**Team mode** (`--team`) is the general-purpose one. The orchestrator plans the
-task into independent subtasks, the `Send` API runs one worker per subtask at the
-same time, and a synthesizer merges them into a single answer. Use it for building
-things, designs, comparisons, or anything with parts that can be worked on at once.
+The table at the top of this file is the whole map. On the CLI:
 
 ```bash
-# Team mode: plan, fan out, synthesize
+# Pipeline (the default): research, grade every claim, then write
+python -m src.main "Analyze the current state of AI agents in 2026"
+
+# Team: plan, fan out, synthesize
 python -m src.main "Design a landing page for a specialty coffee shop" --team
 
 # Cap the plan at 3 subtasks and run at most 2 workers at once
 python -m src.main "Compare Postgres and SQLite for a local-first app" --team --subtasks 3 --workers 2
+
+# Build: sections in parallel, then review and repair
+python -m src.main "A landing page for a neighbourhood coffee shop" --build --subtasks 4
 ```
+
+`--stream` prints progress as each step lands instead of only the end, and
+`--subtasks`/`--workers` set the plan ceiling and the concurrency.
 
 ### How a claim is verified
 
@@ -272,10 +424,9 @@ collapse: saved conversations on the left (with Settings at the bottom), the
 conversation or the live page in the middle, and an Activity panel on the right
 listing which agent is working right now plus every tool call as it happens.
 
-- **Agent** — one agent that works the task end to end with tools, including the
-  computer when it's enabled. Use it for "do this on my machine"; it does not plan
-  a team, it just works
-- **Team** — parallel subagents over a plan (CLI `--team`)
+- **Agent** (the default) — one agent that works the task end to end with tools,
+  including the computer when it's enabled. Use it for "do this on my machine"; it
+  does not plan a team, it just works
 - **Research** — sourced answer. **Hold the button 1s** for *Deep research* (orange):
   the planner writes ~10 questions, a finder per question works them concurrently,
   a gap analyst names what is still missing, a second wave closes those gaps, then
@@ -289,6 +440,10 @@ listing which agent is working right now plus every tool call as it happens.
 Follow-ups continue the same thread, and the workflow reads earlier turns from its
 checkpointer, so memory survives messages and restarts (`chats.json` is the
 visible log, `multi-agent.sqlite` the real state).
+
+The page has buttons for Agent, Research and Build. Team mode and the pipeline are
+CLI modes: the dashboard server accepts `"mode": "team"` and `"mode": "pipeline"` on
+`POST /api/chat`, but nothing in the interface selects them.
 
 **Settings are editable.** ⚙ Settings in the sidebar changes the model, thinking
 power, parallel workers, model retries, backoff, tool retries and the call timeout. Changes are
@@ -385,8 +540,8 @@ python -m src.main "Analyze Q3 AI market trends" --stream
 # Custom thread
 python -m src.main "Analyze AI agents" --thread my-session
 
-# Different provider
-python -m src.main "Analyze AI" --provider anthropic --model claude-3-5-sonnet-20241022
+# Different provider and model (the --provider choices are the router's chain)
+python -m src.main "Analyze AI" --provider groq --model llama-3.3-70b-versatile
 ```
 
 ### Python API
@@ -439,6 +594,7 @@ Available tools:
 - `team_task` - Plan, fan out to parallel subagents, and synthesize one answer
 - `web_search` - Live DuckDuckGo results (title, URL, snippet)
 - `fetch_url` - Fetch content from URL
+- `gather_sources` - Search, open the promising pages, and keep only the ones on topic
 - `search_github` - Search GitHub repositories, issues, or code (set `GITHUB_TOKEN` to raise the rate limit and enable code search)
 - `get_current_time` - Get current time
 
@@ -476,29 +632,38 @@ print(result)
 
 ## Verification Pipeline
 
-```bash
-# Run all verification gates
-make verify
+The gates CI runs, as commands — make is convenient, not required:
 
-# Individual gates
-make test       # Unit tests
-make lint       # Ruff linting
-make typecheck  # MyPy type checking
-make sast       # Semgrep + Bandit security scan
+```bash
+ruff check src/ tests/ evals/            # lint
+ruff format --check src/ tests/ evals/   # formatting
+mypy src/ evals/                         # types
+python -m pytest tests/ -q               # 226 tests, no credentials
+python -m evals.run --stub                # the eval harness
+bandit -c pyproject.toml -r src/          # SAST
+
+# Optional: Semgrep (needs WSL on Windows) and Bandit together
+semgrep scan --config=p/security-audit src/
 ```
+
+`make verify` chains the same gates, and `make test`, `make lint`,
+`make typecheck` and `make sast` run them one at a time.
 
 ## Evals: scoring the answers
 
-`make test` proves the plumbing. The eval set scores what the plumbing produces:
-fifteen cases across the three modes, each naming the properties a good answer
-must have and the fabrications it must not contain.
+`python -m pytest` proves the plumbing. The eval set scores what the plumbing
+produces: fifteen cases across pipeline, team and build, each naming the properties a
+good answer must have and the fabrications it must not contain.
 
 ```bash
-make eval                  # scripted suite: no key, no gateway, no network
-make eval ARGS=--live      # the fifteen cases against the KeyPool gateway
-make eval ARGS="--live --case pipeline-stays-brief"   # one case
-make eval ARGS=--list      # the cases, without running anything
+python -m evals.run                  # scripted suite: no key, no gateway, no network
+python -m evals.run --live           # the fifteen cases against the KeyPool gateway
+python -m evals.run --list           # the cases, without running anything
+python -m evals.run --live --case pipeline-stays-brief   # one case
 ```
+
+`make eval` and `make eval ARGS="--live --case pipeline-stays-brief"` wrap the same
+commands.
 
 How to read a row:
 
@@ -567,23 +732,34 @@ anything behind a microphone or a click the test does not make.
 ```
 multi-agent-system/
 ├── src/
-│   ├── config.py              # Settings & LLM setup
+│   ├── config.py              # Settings, providers, the failover chain
 │   ├── main.py                # CLI entry point
-│   ├── observability.py       # OTel + LangSmith
-│   ├── tools.py               # web_search, fetch_url, search_github, current_time
+│   ├── demo.py                # Scripted provider: the dashboard with no key
+│   ├── observability.py       # OTel + LangSmith + the per-run cost meter
+│   ├── structured.py          # call_json(): the one parse/repair/retry path
+│   ├── tools.py               # web_search, fetch_url, search_github, gather_sources
 │   ├── activity.py            # the event bus: what each agent is doing now
 │   ├── overlay.py             # live on-screen cursors, one per agent
 │   ├── cursor_anim.py         # cursor glide, ring and fade timing (no Tk)
+│   ├── computer.py            # screen description and input actions (optional)
+│   ├── voice.py               # local speech-to-text (optional)
 │   ├── dashboard/             # web dashboard (FastAPI + SSE + one HTML page)
 │   ├── artifacts.py           # page assembly + shared stylesheet for build mode
 │   ├── agents/                # Specialized agents
 │   │   ├── base.py            # BaseAgent: retry, backoff, provider failover
 │   │   ├── __init__.py        # Researcher, Analyst, Writer, Validator
-│   │   └── team.py            # Planner, Worker, Synthesizer
+│   │   ├── verify.py          # claim grading: the verdicts and the abstain rule
+│   │   ├── team.py            # Planner, Worker, Synthesizer
+│   │   ├── research.py        # Question planner, finder, gap analyst, reporter
+│   │   ├── build.py           # Page planner, designer, section writer, critic
+│   │   └── contract.py        # the writer's own output contract
 │   ├── graph/                 # LangGraph workflows
-│   │   ├── state.py           # TypedState with reducers
-│   │   ├── workflow.py        # Pipeline graph
-│   │   └── team.py            # Team graph (Send fan-out)
+│   │   ├── state.py           # AgentState with reducers
+│   │   ├── workflow.py        # Pipeline graph + checkpointer scope
+│   │   ├── team.py            # Team graph (Send fan-out)
+│   │   ├── research.py        # Research graph (two waves)
+│   │   ├── build.py           # Build graph (write, review, repair)
+│   │   └── agent.py           # Agent graph (one agent, many tool rounds)
 │   ├── mcp/                   # MCP server
 │   │   └── server.py          # Tool server (stdio + HTTP)
 │   └── a2a/                   # A2A protocol
@@ -592,12 +768,13 @@ multi-agent-system/
 │   ├── cases.json             # The cases: properties an answer must have and must not
 │   ├── run.py                 # python -m evals.run (stub suite or --live)
 │   ├── harness.py             # Scoring, metrics, baseline comparison
-│   └── stub.py                # Scripted model that proves the harness in CI
-├── tests/
-│   └── test_multi_agent.py    # Unit tests
+│   └── stub.py                # Scripted scenarios that prove the harness in CI
+├── tests/                     # 226 tests, no credentials, no network
 ├── e2e/                       # Browser test: the dashboard in Chromium
-├── Makefile                   # Commands
-├── pyproject.toml             # Dependencies
+├── start.bat                  # Double-click the dashboard (needs .env)
+├── start-demo.bat             # Double-click the demo dashboard (needs nothing)
+├── Makefile                   # Convenience targets over the commands above
+├── pyproject.toml             # Dependencies + console scripts
 └── .env.example               # Environment template
 ```
 
@@ -645,21 +822,12 @@ docker run -d --name otel-collector \
   otel/opentelemetry-collector-contrib:latest
 ```
 
-### Docker
-
-```bash
-# Build
-make docker-build
-
-# Run
-make docker-run QUERY="Analyze AI trends"
-```
-
 ## Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LLM_PROVIDER` | The provider every call goes to | `keypool` |
+| `DEMO_MODE` | Answer every model call from `src/demo.py` instead | `false` |
 | `ENABLE_FREE_FALLBACK` | Add other providers as fallbacks | `false` |
 | `KEYPOOL_BASE_URL` | Gateway base URL, including `/v1` | `http://127.0.0.1:8787` |
 | `OPENAI_MODEL` | OpenAI model | `gpt-4o-mini` |

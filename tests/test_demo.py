@@ -90,3 +90,4 @@ def test_main_serves_the_dashboard_in_demo_mode(monkeypatch: pytest.MonkeyPatch)
 
     assert served == ["dashboard"]
     assert settings.demo_mode is True
+    assert settings.llm_provider == "demo"

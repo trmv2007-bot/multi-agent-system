@@ -69,11 +69,3 @@ a2a-server:
 # Development: run with auto-reload
 dev:
 	watchgod -p "src/**/*.py" -c "python -m src.main 'test query'"
-
-# Build docker image
-docker-build:
-	docker build -t multi-agent-system .
-
-# Run in docker
-docker-run:
-	docker run --rm -it multi-agent-system "Analyze AI agents in 2026"
