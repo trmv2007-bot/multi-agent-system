@@ -60,6 +60,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         metavar="SECONDS",
         help="wall-clock cap on one case (default 300)",
     )
+    parser.add_argument(
+        "--pause",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="wait this long between cases, for a rate-limited gateway (default 0)",
+    )
     parser.add_argument("--list", action="store_true", help="list the cases and exit")
     parser.add_argument(
         "--keypool-env",
@@ -97,11 +104,12 @@ def print_table(results: list[Any]) -> None:
         verdicts = result.metrics["verdicts"]
         graded = f"{verdicts['supported']}/{verdicts['unsupported']}/{verdicts['contradicted']}"
         earned = sum(1 for check in result.checks if check["passed"])
+        scored = result.status == "graded"
         rows.append(
             (
                 result.id,
                 result.mode,
-                f"{result.score:.2f}",
+                f"{result.score:.2f}" if scored else "unmeasured",
                 f"{earned}/{len(result.checks)}",
                 f"{result.metrics['seconds']:.1f}",
                 str(result.metrics["model_calls"]),
@@ -121,7 +129,7 @@ def print_table(results: list[Any]) -> None:
 
 def print_failures(results: list[Any]) -> None:
     """The check that failed on each case, and what it saw."""
-    failed = [result for result in results if not result.passed]
+    failed = [result for result in results if result.status == "graded" and not result.passed]
     if not failed:
         return
     print("\nFAILED CHECKS")
@@ -146,6 +154,11 @@ def print_summary(summary: dict[str, Any]) -> None:
     )
     if summary["failed"]:
         print(f"Failing: {', '.join(summary['failed'])}")
+    if summary["unmeasured"]:
+        print(
+            f"Unmeasured (no model answered, so these are not quality scores):"
+            f" {', '.join(summary['unmeasured'])}"
+        )
 
 
 def print_comparison(comparison: dict[str, Any], baseline: dict[str, Any], path: Path) -> None:
@@ -265,8 +278,18 @@ async def run_live(args: argparse.Namespace) -> int:
         f"Mode: live ({provider.name}, {provider.model})"
         f"  {len(cases)} cases  timeout {args.timeout:.0f}s\n"
     )
+    record = Path(args.json) if args.json else harness.LAST_FILE
+
+    def persist(partial: list[Any]) -> None:
+        """Keep the record current, so an interrupted sweep still leaves results."""
+        harness.write_payload(record, harness.report_payload(partial, "live", provider.model))
+
     results = await harness.evaluate(
-        cases, lambda meter: harness.live_model(llm, meter), timeout=args.timeout
+        cases,
+        lambda meter: harness.live_model(llm, meter),
+        timeout=args.timeout,
+        after_each=persist,
+        pause=args.pause,
     )
     payload = harness.report_payload(results, "live", provider.model)
     print_table(results)
@@ -274,7 +297,6 @@ async def run_live(args: argparse.Namespace) -> int:
     summary = payload["summary"]
     print_summary(summary)
 
-    record = Path(args.json) if args.json else harness.LAST_FILE
     harness.write_payload(record, payload)
     print(f"\nRun record: {record}")
     if args.save_baseline:
@@ -288,7 +310,10 @@ def _finish(results: list[Any], summary: dict[str, Any], args: argparse.Namespac
     """Exit on the score, then on any regression against the baseline."""
     from evals import harness
 
-    code = EXIT_OK if summary["failed"] == [] else EXIT_CASE_FAILED
+    if summary["unmeasured"]:
+        code = EXIT_SETUP
+    else:
+        code = EXIT_OK if summary["failed"] == [] else EXIT_CASE_FAILED
     compared = Path(args.baseline) if args.baseline else harness.BASELINE_FILE
     if not compared.exists():
         return code
