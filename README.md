@@ -448,6 +448,15 @@ Follow-ups continue the same thread, and the workflow reads earlier turns from i
 checkpointer, so memory survives messages and restarts (`chats.json` is the
 visible log, `multi-agent.sqlite` the real state).
 
+**Answers are markdown, and they render like it.** Bold, italic, tables with
+alignment, fenced code with its language, nested lists, blockquotes, headings and
+links all arrive as markup rather than as asterisks and pipes. The renderer is
+vendored in `src/dashboard/static/markdown.js` and served with the page, so it
+needs no CDN and works with no network. Model output is escaped and sanitised
+before it reaches the DOM: raw HTML in an answer shows as text, and a
+`javascript:` link degrades to plain text. A block that arrives half-written while
+the answer streams renders as code or as a padded row, never as a broken layout.
+
 The page has buttons for Agent, Research and Build. Team mode and the pipeline are
 CLI modes: the dashboard server accepts `"mode": "team"` and `"mode": "pipeline"` on
 `POST /api/chat`, but nothing in the interface selects them.
@@ -714,8 +723,9 @@ flip between runs. Re-run a case three times before believing a one-point move.
 
 The unit suite proves the pieces. `e2e/` proves the thing a person touches:
 Chromium opens the dashboard, types a question, sends it, and the test asserts
-the answer rendered, the cost line appeared under it, and no console error
-fired. The three visible modes are each entered and run: Agent, Research, and
+the answer rendered — as a `<strong>`, a real `<table>` with its cells, and a
+`<pre><code>` with its language, with no `**` or `| --- |` left on screen — the
+cost line appeared outside the answer, and no console error fired. The three visible modes are each entered and run: Agent, Research, and
 Build (which must fill the preview with a page).
 
 ```bash
@@ -756,7 +766,8 @@ multi-agent-system/
 │   ├── voice.py               # local speech-to-text (optional)
 │   ├── server_guard.py        # loopback bind + bearer token for the HTTP servers
 │   ├── dashboard/             # web dashboard (FastAPI + SSE + one HTML page)
-│   │   └── fake_model.py      # the switch the browser test uses to script a run
+│   │   ├── fake_model.py      # the switch the browser test uses to script a run
+│   │   └── static/            # index.html, and markdown.js which renders answers
 │   ├── artifacts.py           # page assembly + shared stylesheet for build mode
 │   ├── agents/                # Specialized agents
 │   │   ├── base.py            # BaseAgent: retry, backoff, provider failover
@@ -783,7 +794,7 @@ multi-agent-system/
 │   ├── harness.py             # Scoring, metrics, baseline comparison
 │   ├── baseline.json          # The committed baseline every live run is compared to
 │   └── stub.py                # Scripted scenarios that prove the harness in CI
-├── tests/                     # 255 tests, no credentials, no network
+├── tests/                     # 263 tests, no credentials, no network
 ├── e2e/                       # Browser test: the dashboard in Chromium
 ├── start.bat                  # Double-click the dashboard (needs .env)
 ├── start-demo.bat             # Double-click the demo dashboard (needs nothing)
