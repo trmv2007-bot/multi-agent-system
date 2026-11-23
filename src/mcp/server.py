@@ -18,6 +18,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from mcp.server import Server
 from src import tools
 from src.config import get_tracer, settings
+from src.server_guard import AUTH_ENV_VAR, add_token_middleware, require_authenticated_bind
 
 
 class MCPToolServer:
@@ -238,10 +239,11 @@ def _error(message: str) -> CallToolResult:
 
 
 # FastAPI wrapper for HTTP transport
-def create_fastapi_app() -> FastAPI:
+def create_fastapi_app(auth_token: str | None = None) -> FastAPI:
     """Create FastAPI app for HTTP-based MCP server."""
     app = FastAPI(title="MCP Tool Server")
     mcp_server = MCPToolServer()
+    add_token_middleware(app, auth_token)
 
     @app.post("/mcp")
     async def mcp_endpoint(request: Request) -> dict[str, Any]:
@@ -280,10 +282,18 @@ async def run_mcp_server(http: bool = False) -> None:
         await MCPToolServer().run()
         return
 
+    require_authenticated_bind(
+        settings.mcp_server_host,
+        settings.server_auth_token,
+        server="MCP",
+        host_env="MCP_SERVER_HOST",
+        token_env=AUTH_ENV_VAR,
+    )
+
     import uvicorn
 
     config = uvicorn.Config(
-        create_fastapi_app(),
+        create_fastapi_app(settings.server_auth_token),
         host=settings.mcp_server_host,
         port=settings.mcp_server_port,
     )

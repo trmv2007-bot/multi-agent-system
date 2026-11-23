@@ -429,6 +429,11 @@ This server is how other AI agents — Claude Desktop, Claude Code, Hermes, or y
 own agent loop — use this system as a tool. See [MCP.md](MCP.md) for the client
 configuration.
 
+`--http` binds `127.0.0.1:8001`. Listening on a network interface requires
+`MCP_SERVER_HOST` **and** a shared `SERVER_AUTH_TOKEN`, and every request then
+carries `Authorization: Bearer <token>`; the server refuses to start on a
+non-loopback host without one.
+
 Available tools:
 - `research_report` - Run the full pipeline and return one cited report
 - `team_task` - Plan, fan out to parallel subagents, and synthesize one answer
@@ -444,7 +449,10 @@ Available tools:
 python -m src.a2a.server --http
 ```
 
-Agent Card at: `http://localhost:8002/.well-known/agent.json`
+Agent Card at: `http://127.0.0.1:8002/.well-known/agent.json`
+
+Same bind rule as the MCP server: `A2A_SERVER_HOST` defaults to `127.0.0.1`, and a
+network bind needs `SERVER_AUTH_TOKEN`, which every request must then present.
 
 Skills:
 - `research` - Gather information
@@ -459,7 +467,7 @@ Skills:
 ```python
 from src.a2a.server import A2AAgentClient
 
-client = A2AAgentClient("http://localhost:8002")
+client = A2AAgentClient("http://127.0.0.1:8002")  # add auth_token=... for a protected server
 await client.discover()
 
 result = await client.send_task("full_workflow", "Analyze AI market")
@@ -644,8 +652,11 @@ make docker-run QUERY="Analyze AI trends"
 | `CURSOR_OVERLAY` | Show the live cursor overlay without `--cursor` | `false` |
 | `CURSOR_SETTLE_MS` | Pause before each action so the eye can follow | `150` |
 | `CURSOR_GLIDE_MS` | How long the cursor takes to travel to its target | `200` |
+| `MCP_SERVER_HOST` | MCP server bind host | `127.0.0.1` |
 | `MCP_SERVER_PORT` | MCP server port | `8001` |
+| `A2A_SERVER_HOST` | A2A server bind host | `127.0.0.1` |
 | `A2A_SERVER_PORT` | A2A server port | `8002` |
+| `SERVER_AUTH_TOKEN` | Bearer token both HTTP servers require; mandatory for a non-loopback bind | unset |
 
 ## Why This Works
 
