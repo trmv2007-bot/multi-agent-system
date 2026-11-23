@@ -522,6 +522,7 @@ class TestMCPServer:
         assert [t["name"] for t in body["result"]["tools"]] == [
             "web_search",
             "fetch_url",
+            "gather_sources",
             "search_github",
             "get_current_time",
             "research_report",
@@ -838,6 +839,7 @@ class TestAgentFacingTools:
         assert names == [
             "web_search",
             "fetch_url",
+            "gather_sources",
             "search_github",
             "get_current_time",
             "research_report",
