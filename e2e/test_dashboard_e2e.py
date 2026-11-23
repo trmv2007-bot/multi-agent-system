@@ -32,6 +32,9 @@ TURN_SECONDS = 60_000
 BUILT_LINE = re.compile(r"^built (\d+) sections? in (\d+)s$")
 SECTION_PHASE = re.compile(r"^(?:writing|fixing) section (\d+) of (\d+)$")
 CARRIED_SECTIONS = "The page currently has these sections"
+# The scripted planner always writes the same three sections.
+SCRIPTED_SECTIONS = 3
+TWO_TABS = 2
 
 # The build's status line and checklist change many times in a few seconds, so
 # the page is watched rather than polled: every text and every checklist state
@@ -262,7 +265,7 @@ def test_build_reports_progress_a_person_can_read(
     assert statuses.index("planning") < statuses.index(numbered[0])
 
     total = int(SECTION_PHASE.match(numbered[0]).group(2))
-    assert total >= 3
+    assert total >= SCRIPTED_SECTIONS
     seen = [int(SECTION_PHASE.match(status).group(1)) for status in numbered]
     assert seen == sorted(seen), statuses
     # The plan's last section is the last one named; the scripted build is fast
@@ -303,7 +306,7 @@ def test_a_second_build_opens_its_own_tab(
 
     ask(page, "A page about the second dashboard")
 
-    expect(tabs).to_have_count(2)
+    expect(tabs).to_have_count(TWO_TABS)
     expect(tabs.nth(1)).to_have_attribute("aria-selected", "true")
     expect(tabs.nth(0)).to_have_attribute("aria-selected", "false")
     second_document = page.locator("#preview-code").text_content()
@@ -317,7 +320,7 @@ def test_a_second_build_opens_its_own_tab(
 
     # Neither request carried the other page's sections into the planner.
     builds = page.request.get(f"{dashboard_url}/api/builds").json()["builds"]
-    assert len(builds) == 2
+    assert len(builds) == TWO_TABS
     assert [row["document"] for row in builds] == [first_document, second_document]
     for row in builds:
         assert CARRIED_SECTIONS not in row["request"], row["request"]
@@ -349,9 +352,7 @@ def test_editing_a_page_carries_its_sections(
     assert problems == []
 
 
-def test_tabs_survive_a_refresh(
-    session: tuple[Page, list[str]], dashboard_url: str
-) -> None:
+def test_tabs_survive_a_refresh(session: tuple[Page, list[str]], dashboard_url: str) -> None:
     """A refresh brings back every tab and the page each one holds."""
     page, problems = session
 
@@ -361,13 +362,13 @@ def test_tabs_survive_a_refresh(
 
     titles = page.locator("#build-tabs .build-tab .label").all_text_contents()
     documents = page.locator("#preview-code").text_content()
-    assert len(titles) == 2
+    assert len(titles) == TWO_TABS
 
     page.reload()
 
     expect(page.locator("#mode-build")).to_have_attribute("aria-pressed", "true")
     tabs = page.locator("#build-tabs .build-tab")
-    expect(tabs).to_have_count(2)
+    expect(tabs).to_have_count(TWO_TABS)
     assert page.locator("#build-tabs .build-tab .label").all_text_contents() == titles
     expect(tabs.nth(1)).to_have_attribute("aria-selected", "true")
     assert page.locator("#preview-code").text_content() == documents

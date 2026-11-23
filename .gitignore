@@ -165,6 +165,7 @@ multi-agent.sqlite-journal
 
 # Dashboard local state
 chats.json
+dashboard-builds.json
 dashboard-notes.json
 
 # SQLite WAL sidecars
