@@ -161,7 +161,7 @@ class TestAnalystAgent:
         result = await analyst.execute(state)
 
         assert len(result["analysis_results"]) > 0
-        assert result["analysis_results"][0]["confidence"] > 0
+        assert result["analysis_results"][0]["insight"] == "Analysis insight here"
         analyst.llm.ainvoke.assert_called_once()
 
     @pytest.mark.asyncio
@@ -216,16 +216,14 @@ class TestValidatorAgent:
     async def test_execute_validates_findings(self, validator):
         state = AgentState()
         state.add_finding({"source": "web", "content": "Verified finding"})
-        state.add_finding(
-            {"source": "llm_synthesis", "content": "As an AI language model, I cannot access..."}
-        )
+        state.add_finding({"source": "llm_synthesis", "content": "Unsourced claim"})
 
         result = await validator.execute(state)
 
+        # A model that returns nothing gradeable must not confirm anything.
         assert len(result["validation_results"]) >= 2
-        # Check hallucination detection
-        hallucinated = [v for v in result["validation_results"] if v["status"] == "hallucinated"]
-        assert len(hallucinated) >= 1
+        assert all(v["status"] != "verified" for v in result["validation_results"])
+        assert all(v["verdict"] == "unsupported" for v in result["validation_results"])
 
 
 class TestWorkflow:
@@ -391,9 +389,10 @@ async def test_full_workflow_mock():
         # way back through the operator.add reducers.
         assert len(result.research_findings) == 1
         assert len(result.analysis_results) == 1
-        # One validation for the research finding (LLM-only sourcing is
-        # unverified) and one for the analyst's insight.
-        assert [v["status"] for v in result.validation_results] == ["unverified", "verified"]
+        # One validation for the research finding and one for the analyst's
+        # insight. The stubbed model returns prose, which is not a verdict, so
+        # both come back unverified rather than trusted.
+        assert [v["status"] for v in result.validation_results] == ["unverified", "unverified"]
         assert [v["evidence"] for v in result.validation_results] == [
             ["llm_synthesis"],
             ["llm_synthesis"],

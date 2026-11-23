@@ -4,6 +4,7 @@ import pathlib
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -77,10 +78,51 @@ def should_continue_analysis(state: AgentState) -> str:
 
 
 def should_continue_validation(state: AgentState) -> str:
-    """Decide whether to continue validation or move to writing."""
-    if not state.validation_results:
-        return "validator"
+    """Write the answer, or refuse to when every finding was contradicted.
+
+    This is where the verification grade stops being a report and becomes a
+    decision. If the sources contradicted every claim the research step
+    produced, there is nothing honest for the writer to write, so the run ends
+    on the validator's finding instead.
+    """
+    from src.agents.verify import CONTRADICTED, verdicts_of
+
+    verdicts = verdicts_of(state.validation_results, state.turn, scope="findings")
+    contradicted = [verdict for verdict in verdicts.values() if verdict == CONTRADICTED]
+    if verdicts and len(contradicted) == len(verdicts):
+        return "abstain"
     return "writer"
+
+
+def create_abstain_node() -> Any:
+    """Close the run honestly when the evidence contradicted itself."""
+
+    async def abstain_node(state: AgentState) -> dict[str, Any]:
+        from src.agents.verify import CONTRADICTED, verdicts_of
+
+        verdicts = verdicts_of(state.validation_results, state.turn, scope="findings")
+        claims = [claim for claim, verdict in verdicts.items() if verdict == CONTRADICTED]
+        listed = "\n".join(f"- {claim[:160]}" for claim in claims[:5])
+        report = (
+            "I could not verify the evidence for this question, so I am not answering it. "
+            f"All {len(claims)} claim(s) the research step returned were contradicted by "
+            f"the sources they came from:\n{listed}\n\n"
+            "Re-running the research against different sources is the honest next step."
+        )
+        return {
+            "final_report": report,
+            "context": {"verification": "abstained", "contradicted_claims": len(claims)},
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": f"Declined to answer: {len(claims)} contradicted claim(s)",
+                    "agent": AgentRole.VALIDATOR.value,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            ],
+        }
+
+    return abstain_node
 
 
 def is_complete(state: AgentState) -> bool:
@@ -135,7 +177,8 @@ def create_workflow(llm: Any = None, checkpointer: Any = None) -> Any:
     - Researcher runs first
     - Analyst and findings validation run in parallel over the research
     - Analysis validation fans in once both have produced output
-    - Writer synthesizes everything
+    - The grade decides the next step: writer, or abstain when the sources
+      contradicted every finding
     - Nodes return partial updates; the state reducers merge them
     """
     from src.agents import ValidatorAgent, create_agents
@@ -152,16 +195,22 @@ def create_workflow(llm: Any = None, checkpointer: Any = None) -> Any:
     workflow.add_node("validate_findings", create_agent_node(findings_validator))
     workflow.add_node("validate_analysis", create_agent_node(analysis_validator))
     workflow.add_node("writer", create_agent_node(agents[AgentRole.WRITER]))
+    # The gate is a plain function node: it reports what validation found, it
+    # does not run an agent.
+    workflow.add_node("abstain", create_abstain_node())
 
     workflow.add_edge(START, "researcher")
     workflow.add_edge("researcher", "analyst")
     workflow.add_edge("researcher", "validate_findings")
-    # Both writers of this superstep converge here, so the writer below is
-    # triggered once rather than once per parallel branch.
+    # Both writers of this superstep converge here, so the gate below is
+    # evaluated once rather than once per parallel branch.
     workflow.add_edge("analyst", "validate_analysis")
     workflow.add_edge("validate_findings", "validate_analysis")
-    workflow.add_edge("validate_analysis", "writer")
+    workflow.add_conditional_edges(
+        "validate_analysis", should_continue_validation, ["writer", "abstain"]
+    )
     workflow.add_edge("writer", END)
+    workflow.add_edge("abstain", END)
 
     return workflow.compile(checkpointer=checkpointer or MemorySaver())
 

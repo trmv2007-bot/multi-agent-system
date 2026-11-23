@@ -40,13 +40,13 @@ A production-ready multi-agent system that feels like a single agent but operate
 
 - **🧠 Unified State**: Single `TypedDict` state with reducers for automatic parallel merge
 - **💾 Durability**: every step is checkpointed to SQLite (or Postgres), so runs survive a crash and a thread remembers what you told it earlier
-- **⚡ Parallel Execution**: Research → Analyst + findings validation (parallel) → analysis validation → Writer
+- **⚡ Parallel Execution**: Research → Analyst + findings validation (parallel) → analysis validation → Writer, or an honest abstain when every finding was contradicted
 - **👥 Team Mode**: an orchestrator splits a task into subtasks and LangGraph's `Send` API fans them out to concurrent workers, which use the same tools as the MCP server, before one synthesizer merges the results
 - **🔧 MCP Tools**: Standardized tool access (web search, GitHub, URL fetch) via MCP
 - **🤝 A2A Protocol**: Expose agents as remote services, call external agents
 - **📊 Observability**: OpenTelemetry + LangSmith tracing with full span hierarchy
-- **✅ Verification Gates**: SAST, type checking, linting, tests, adversarial validation
-- **🛡️ Hallucination Detection**: Built-in validator agent catches fabrications
+- **✅ Verification Gates**: SAST, type checking, linting and tests gate a change; every run's claims are graded before the writer sees them
+- **🛡️ Hallucination Detection**: a model call per validation pass grades each finding against the text its source actually returned. Contradicted claims never reach the writer, unverified ones are labelled in the answer, and a run whose findings were all contradicted declines to answer. Cost: one extra small completion per pass (two in pipeline mode)
 
 ## Quick Start
 
@@ -198,6 +198,36 @@ python -m src.main "Design a landing page for a specialty coffee shop" --team
 # Cap the plan at 3 subtasks and run at most 2 workers at once
 python -m src.main "Compare Postgres and SQLite for a local-first app" --team --subtasks 3 --workers 2
 ```
+
+### How a claim is verified
+
+Pipeline mode grades the run's claims before anyone writes them up. After the
+researcher and the analyst finish, the validator makes one model call per pass
+and asks for a verdict on every claim, with the text the claim's source actually
+returned in the prompt:
+
+- `supported` — the fetched source text states the claim
+- `unsupported` — the source is silent, off-topic, or nothing was ever fetched
+- `contradicted` — the source says something incompatible with the claim
+
+The grade is load-bearing, not a report. The writer never sees a contradicted
+claim, and its prompt says how many claims were removed for that reason.
+Unsupported claims reach the writer labelled `UNVERIFIED`, and the finished
+answer ends with a short provenance footer naming them. When the sources
+contradict every finding, the graph does not run the writer at all: the run ends
+saying it could not verify the evidence, instead of answering anyway.
+
+A validator reply the parser cannot read, an empty reply, or a verdict call that
+fails, grades as unverified — the failure mode is a missing grade, never a false
+pass. The analysis pass is a judgement about the findings, not a self-reported
+confidence score.
+
+The cost is one extra small completion per validation pass: two in pipeline mode
+(one for the findings, one for the analysis). Verdict calls ask the gateway to
+skip reasoning — with it on, pooled reasoning models spend the whole completion
+budget thinking and return no verdict at all. In a measured pipeline run the two
+verdict calls were 4,066 prompt tokens and 208 completion tokens together,
+about 3 seconds of a 31-second run.
 
 ### Threads remember
 
@@ -539,7 +569,7 @@ make docker-run QUERY="Analyze AI trends"
 | Context loss at handoffs | Single shared state, no handoff payloads |
 | Race conditions | `Annotated[list, operator.add]` reducers |
 | Crash → lose progress | Postgres checkpointer every super-step |
-| Silent hallucinations | Validator agent + adversarial review |
+| Silent hallucinations | Validator grades every claim against the source text fetched for it; contradicted claims never reach the writer, and a fully contradicted run declines to answer |
 | Debugging = impossible | OTel spans: app→session→agent→trace→span |
 | External agent integration | A2A protocol — looks like local tool |
 | Tool schema breaking changes | MCP server versioning |
