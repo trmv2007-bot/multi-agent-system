@@ -429,9 +429,17 @@ def _abstain_check(wanted: str, abstained: bool) -> tuple[str, bool, str]:
 
 
 def _search(pattern: str, text: str) -> str | None:
-    """The matched text for one pattern, or None."""
+    """The matched text for one pattern with its surroundings, or None.
+
+    The surrounding text is what makes a failed exclusion diagnosable: a bare
+    match says a forbidden claim appeared, the window says whether it was the
+    model's copy or the page's own script.
+    """
     match = re.search(pattern, text, re.S)
-    return match.group(0)[:80] if match else None
+    if match is None:
+        return None
+    start = max(0, match.start() - 40)
+    return " ".join(text[start : match.end() + 40].split())
 
 
 def verdict_counts(state: AgentState | None) -> dict[str, int]:

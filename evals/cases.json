@@ -23,7 +23,7 @@
         "answer_min_words": 10,
         "answer_max_words": 220,
         "answer_matches": [
-          "(?i)(not a (?:real|recognised|recognized|sovereign) (?:country|nation)|does not exist|isn't a real|is not a real|no record of|no such (?:country|team|nation)|cannot|could not|unable to)"
+          "(?i)(fictional|does not exist|isn't real|is not real|not a (?:real|recognised|recognized|sovereign|fifa-recognized|un-recognized) (?:country|nation)|no record of|no such (?:country|team|nation)|never (?:won|participated|qualified)|cannot|could not|unable to)"
         ],
         "answer_excludes": ["(?i)won the (?:fifa )?world cup in \\d{4}"],
         "abstain": "either",
