@@ -265,6 +265,10 @@ class Settings(BaseSettings):
     )
 
     # Application
+    demo_mode: bool = Field(
+        default=False,
+        description="Answer every model call from the scripted provider in src/demo.py",
+    )
     log_level: str = Field(default="INFO", description="Logging level")
     max_parallel_agents: int = Field(default=5, description="Maximum parallel agents")
     thread_id: str = Field(default="default-session", description="Default thread ID")
@@ -306,6 +310,10 @@ def get_llm(provider: str | None = None) -> ChatOpenAI:
         llm = router.next_provider()
         ```
     """
+    if settings.demo_mode:
+        from src.demo import demo_model
+
+        return demo_model()  # type: ignore[return-value]
     return router.get_llm(provider)
 
 
