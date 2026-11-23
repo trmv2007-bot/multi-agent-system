@@ -216,6 +216,11 @@
     font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
     color: var(--faint); margin-bottom: .4rem;
   }
+  .turn .cost {
+    margin-top: .6rem; padding-top: .5rem; border-top: 1px solid var(--line);
+    font: 500 10.5px/1.45 var(--mono); color: var(--faint); white-space: normal;
+    letter-spacing: .02em; animation: fade var(--slow) var(--ease) both;
+  }
 
   /* build preview */
   .preview-stage {
@@ -669,7 +674,7 @@
     turn.appendChild(bubble);
     $("thread-col").appendChild(turn);
     scrollLog();
-    return { turn, body };
+    return { turn, bubble, body };
   }
 
   const scrollLog = () => { $("log").scrollTop = $("log").scrollHeight; };
@@ -732,6 +737,33 @@
     } else {
       reply.body.textContent = text;
     }
+  }
+
+  // What a run cost, as one quiet line under the answer it paid for.
+  function showCost(reply, cost) {
+    if (!reply || !reply.bubble || !cost || !cost.calls) return;
+    reply.bubble.querySelector(".cost")?.remove();
+    const structured = cost.structured || {};
+    const bits = [
+      cost.calls + (cost.calls === 1 ? " call" : " calls"),
+      compactTokens(cost.tokens) + " tokens",
+      Math.round(cost.seconds) + "s",
+    ];
+    if (cost.slowest_agent) bits.push("slowest " + cost.slowest_agent);
+    if (structured.repaired) bits.push(structured.repaired + (structured.repaired === 1 ? " JSON repair" : " JSON repairs"));
+    if (structured.failed) bits.push(structured.failed + (structured.failed === 1 ? " JSON failure" : " JSON failures"));
+    const line = document.createElement("div");
+    line.className = "cost";
+    line.textContent = bits.join(" · ");
+    reply.bubble.appendChild(line);
+    scrollLog();
+  }
+
+  function compactTokens(count) {
+    const value = Number(count) || 0;
+    if (value < 1000) return String(value);
+    if (value < 10000) return (value / 1000).toFixed(1) + "k";
+    return Math.round(value / 1000) + "k";
   }
 
   function tickActivity() {
@@ -862,6 +894,7 @@
           scrollLog();
         }
       } else if (event.type === "done") {
+        if (event.cost) showCost(reply, event.cost);
         finish("ok");
       } else if (event.type === "failed") {
         finish("bad", event.message);
@@ -1073,7 +1106,8 @@
     const { messages, state } = await response.json();
     $("thread-col").textContent = "";
     for (const message of messages) {
-      addTurn(message.role === "user" ? "user" : "assistant", message.text);
+      const reply = addTurn(message.role === "user" ? "user" : "assistant", message.text);
+      if (message.cost) showCost(reply, message.cost);
     }
 
     // Whatever this conversation produced comes back with it.

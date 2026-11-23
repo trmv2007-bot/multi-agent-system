@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from src.activity import activity
 from src.artifacts import assemble_page, page_fragments
 from src.config import PROJECT_ROOT, settings
+from src.observability import end_run, start_run
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 CHAT_FILE = PROJECT_ROOT / "chats.json"
@@ -59,6 +60,7 @@ class Run:
     intensity: str = "normal"
     findings: list[dict[str, Any]] = field(default_factory=list)
     artifact: str = ""
+    cost: dict[str, Any] = field(default_factory=dict)
     task: asyncio.Task[None] | None = None
 
     def push(self, event: dict[str, Any]) -> None:
@@ -272,6 +274,7 @@ async def _drive(run: Run) -> None:
     from src.graph.team import run_team_stream
     from src.graph.workflow import run_workflow_stream
 
+    meter = start_run(f"{run.mode} · {run.text[:60]}")
     collector = _BuildCollector(run)
     unsubscribe = activity.subscribe(collector.on_event)
     try:
@@ -304,10 +307,12 @@ async def _drive(run: Run) -> None:
             run.findings = list(state.research_findings) or run.findings
             run.push(event)
 
+        run.cost = end_run(meter)
         run.done = True
-        run.push({"type": "done", "answer": run.answer})
+        run.push({"type": "done", "answer": run.answer, "cost": run.cost})
 
     except Exception as e:
+        meter.stop()
         run.error = str(e)
         run.done = True
         run.push({"type": "failed", "message": run.error})
@@ -334,6 +339,7 @@ async def _drive(run: Run) -> None:
                 "sections": len(run.plan),
                 "plan": list(run.plan),
                 "failed": bool(run.error),
+                "cost": run.cost,
             },
         )
 
