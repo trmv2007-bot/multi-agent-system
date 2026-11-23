@@ -9,6 +9,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from src.agents.base import AgentConfig, BaseAgent
+from src.agents.contract import (
+    WORD_CAP,
+    fetched_urls,
+    repair,
+    repair_request,
+    violation_of,
+)
 from src.agents.verify import (
     CONFIDENCE_BY_VERDICT,
     CONTRADICTED,
@@ -195,11 +202,11 @@ class WriterAgent(BaseAgent):
             role=AgentRole.WRITER,
             name="Writer",
             description="Generates final reports from analysis",
-            system_prompt="""You are the writing agent. You turn research and analysis into the answer.
+            system_prompt=f"""You are the writing agent. You turn research and analysis into the answer.
 
 Guidelines:
 1. Answer in the first sentence
-2. Default to a short reply: at most 180 words. No "Executive Summary", no
+2. Default to a short reply: at most {WORD_CAP} words. No "Executive Summary", no
    "Conclusions & Recommendations" scaffolding unless the user asked for a report
 3. Cite sources as short links, only where a claim needs one
 4. Say plainly when the evidence was thin rather than padding the answer
@@ -279,20 +286,52 @@ Original query: {state.current_task or state.messages[0]["content"] if state.mes
 
             response = await self._ainvoke(messages)
 
-            report = self._text_of(response).rstrip()
-            note = self._unverified_note(unverified, dropped)
-            if note:
-                report = f"{report}\n\n{note}"
+            report, repairs = await self._enforce_contract(messages, self._text_of(response))
+            footer = self._footer(state, unverified, dropped)
+            if footer:
+                report = f"{report}\n\n{footer}"
 
             return {
                 "final_report": report,
                 "agent_timings": {self.config.role.value: time.time() - start},
-                "messages": [self._message("Report generated")],
+                "messages": [
+                    self._message(
+                        "Report generated" + (f" after {repairs} repair call" if repairs else "")
+                    )
+                ],
             }
 
-    @staticmethod
-    def _unverified_note(unverified: list[dict[str, Any]], dropped: int) -> str:
-        """The provenance footer naming what the sources could not support."""
+    async def _enforce_contract(self, messages: list[dict[str, Any]], text: str) -> tuple[str, int]:
+        """
+        Hold the answer to the prompt's promise, at the price of one extra call.
+
+        The prompt asks for at most :data:`WORD_CAP` words with no scaffolding.
+        A model that ignores it is told exactly which part it broke and asked
+        once more, and whatever comes back is then cut to the cap in code, so a
+        second refusal cannot leak a 900-word answer to the reader.
+        """
+        report = text.rstrip()
+        violation = violation_of(report)
+        if violation is None:
+            return report, 0
+
+        self._report(f"answer broke the brief · {violation.describe()}")
+        rewritten = self._text_of(
+            await self._ainvoke(
+                [
+                    *messages,
+                    {"role": "assistant", "content": report},
+                    {"role": "user", "content": repair_request(violation)},
+                ]
+            )
+        ).rstrip()
+
+        if not rewritten or violation_of(rewritten) is not None:
+            return repair(rewritten or report), 1
+        return rewritten, 1
+
+    def _footer(self, state: AgentState, unverified: list[dict[str, Any]], dropped: int) -> str:
+        """The one footer an answer ends with: what was unsourced, and the sources."""
         lines: list[str] = []
         if unverified:
             lines.append("Unverified (no fetched source supports these):")
@@ -302,6 +341,11 @@ Original query: {state.current_task or state.messages[0]["content"] if state.mes
             )
         if dropped:
             lines.append(f"Removed {dropped} claim(s) that their sources contradicted.")
+        urls = fetched_urls(
+            finding for finding in state.research_findings if _in_turn(finding, state.turn)
+        )
+        if urls:
+            lines.append("Sources: " + " · ".join(urls))
         return "\n".join(lines)
 
 
