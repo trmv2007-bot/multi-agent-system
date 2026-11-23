@@ -65,15 +65,16 @@ the working directory.
 a few seconds, and `make` is optional — these are the commands behind it:
 
 ```bash
-ruff check src/ tests/ evals/          # lint
-ruff format --check src/ tests/ evals/ # formatting
-mypy src/ evals/                       # types
-python -m pytest tests/ -q             # 226 tests, no key, no network
-python -m evals.run --stub             # the eval harness, scripted
+ruff check src/ tests/ evals/ e2e/          # lint
+ruff format --check src/ tests/ evals/ e2e/ # formatting
+mypy src/ evals/ e2e/                       # types
+python -m pytest tests/ -q                  # 255 tests, no key, no network
+python -m evals.run --stub                  # the eval harness, scripted
+python -m pytest e2e -q                     # the dashboard in Chromium
 ```
 
 `make lint`, `make typecheck`, `make test` and `make verify` run the same commands
-if you have make.
+if you have make; `make browser-test` is the browser suite.
 
 ## What verification actually checks
 
@@ -127,14 +128,20 @@ python -m evals.run --live --case pipeline-stays-brief
 
 A row reads: `score` is checks passed / checks asked, `calls` is model responses,
 `secs` the wall time, `verdicts` the validator's tally. A case passes only when every
-check passes, and a failed check is listed with what it actually saw. The scripted
+check passes, and a failed check is listed with what it actually saw. A case where no
+model answered prints `unmeasured` instead of a score and is never counted as a
+quality figure — a dead gateway and a bad answer are different failures, and the exit
+code says which one you have. The scripted
 suite runs three scenarios through the real graph — a grounded answer that must pass,
 a fabricated one that must fail, and a contradicted one that must abstain — and
 selftests that the scorer discriminated between them. That is the piece CI runs on
 every push, which is why the gate stays credential-free. Live runs are written to
-`evals/last.json`, and `--save-baseline` makes a later regression a number instead of
-an opinion. Details, including what the checks cannot see, are under
-[Evals: scoring the answers](#evals-scoring-the-answers).
+`evals/last.json`, and `evals/baseline.json` is committed, so every `--live` run
+compares itself against that baseline and exits non-zero on a per-case regression —
+a regression is a number rather than an opinion. `--baseline PATH` compares against
+another run, `--save-baseline` replaces the committed one, and `--pause` spaces the
+cases out on a rate-limited gateway. Details, including what the checks cannot see,
+are under [Evals: scoring the answers](#evals-scoring-the-answers).
 
 ## Watch the agents work
 
@@ -635,16 +642,19 @@ print(result)
 The gates CI runs, as commands — make is convenient, not required:
 
 ```bash
-ruff check src/ tests/ evals/            # lint
-ruff format --check src/ tests/ evals/   # formatting
-mypy src/ evals/                         # types
-python -m pytest tests/ -q               # 226 tests, no credentials
-python -m evals.run --stub                # the eval harness
-bandit -c pyproject.toml -r src/          # SAST
+ruff check src/ tests/ evals/ e2e/           # lint
+ruff format --check src/ tests/ evals/ e2e/  # formatting
+mypy src/ evals/ e2e/                        # types
+python -m pytest tests/ -q                   # 255 tests, no credentials
+python -m evals.run --stub                   # the eval harness
+bandit -c pyproject.toml -r src/             # SAST
 
-# Optional: Semgrep (needs WSL on Windows) and Bandit together
+# Optional: Semgrep (needs WSL on Windows)
 semgrep scan --config=p/security-audit src/
 ```
+
+CI runs those, plus `python -m pytest e2e -q` in a separate job with Chromium
+installed — see [Browser test](#browser-test-the-dashboard-end-to-end).
 
 `make verify` chains the same gates, and `make test`, `make lint`,
 `make typecheck` and `make sast` run them one at a time.
@@ -714,10 +724,11 @@ python -m pytest e2e -q                 # or: make browser-test
 ```
 
 The model is scripted, so the test needs no gateway, no key and no network:
-`DASHBOARD_FAKE_MODEL=1` makes the dashboard run turns on
-`src/dashboard/fake_model.py`, which answers each agent's prompt from a fixed
-script. Only the model is faked - the page, the HTTP routes, the SSE stream and
-the graphs are the real ones.
+`DASHBOARD_FAKE_MODEL=1` makes the dashboard answer from the same script the demo
+runs, [`src/demo.py`](src/demo.py) — `src/dashboard/fake_model.py` is only the switch
+and the answer text the test asserts on, so the test and the demo cannot drift apart.
+Only the model is faked - the page, the HTTP routes, the SSE stream and the graphs
+are the real ones.
 
 CI runs it as its own `browser` job, apart from the unit matrix, so a broken tab
 and a broken unit test never hide each other's results. If Chromium downloads
@@ -743,7 +754,9 @@ multi-agent-system/
 │   ├── cursor_anim.py         # cursor glide, ring and fade timing (no Tk)
 │   ├── computer.py            # screen description and input actions (optional)
 │   ├── voice.py               # local speech-to-text (optional)
+│   ├── server_guard.py        # loopback bind + bearer token for the HTTP servers
 │   ├── dashboard/             # web dashboard (FastAPI + SSE + one HTML page)
+│   │   └── fake_model.py      # the switch the browser test uses to script a run
 │   ├── artifacts.py           # page assembly + shared stylesheet for build mode
 │   ├── agents/                # Specialized agents
 │   │   ├── base.py            # BaseAgent: retry, backoff, provider failover
@@ -768,8 +781,9 @@ multi-agent-system/
 │   ├── cases.json             # The cases: properties an answer must have and must not
 │   ├── run.py                 # python -m evals.run (stub suite or --live)
 │   ├── harness.py             # Scoring, metrics, baseline comparison
+│   ├── baseline.json          # The committed baseline every live run is compared to
 │   └── stub.py                # Scripted scenarios that prove the harness in CI
-├── tests/                     # 226 tests, no credentials, no network
+├── tests/                     # 255 tests, no credentials, no network
 ├── e2e/                       # Browser test: the dashboard in Chromium
 ├── start.bat                  # Double-click the dashboard (needs .env)
 ├── start-demo.bat             # Double-click the demo dashboard (needs nothing)
