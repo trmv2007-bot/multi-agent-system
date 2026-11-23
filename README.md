@@ -535,6 +535,33 @@ What it does not measure: whether the prose is good, only whether the stated
 properties hold; and each case is a single sample, so a borderline answer can
 flip between runs. Re-run a case three times before believing a one-point move.
 
+## Browser test: the dashboard end to end
+
+The unit suite proves the pieces. `e2e/` proves the thing a person touches:
+Chromium opens the dashboard, types a question, sends it, and the test asserts
+the answer rendered, the cost line appeared under it, and no console error
+fired. The three visible modes are each entered and run: Agent, Research, and
+Build (which must fill the preview with a page).
+
+```bash
+python -m playwright install chromium   # once per machine
+python -m pytest e2e -q                 # or: make browser-test
+```
+
+The model is scripted, so the test needs no gateway, no key and no network:
+`DASHBOARD_FAKE_MODEL=1` makes the dashboard run turns on
+`src/dashboard/fake_model.py`, which answers each agent's prompt from a fixed
+script. Only the model is faked - the page, the HTTP routes, the SSE stream and
+the graphs are the real ones.
+
+CI runs it as its own `browser` job, apart from the unit matrix, so a broken tab
+and a broken unit test never hide each other's results. If Chromium downloads
+turn flaky there, run the same step inside the matching
+`mcr.microsoft.com/playwright` image instead, which ships the browser.
+
+What it does not cover: prose quality, real provider behaviour, voice, and
+anything behind a microphone or a click the test does not make.
+
 ## Project Structure
 
 ```
@@ -568,6 +595,7 @@ multi-agent-system/
 │   └── stub.py                # Scripted model that proves the harness in CI
 ├── tests/
 │   └── test_multi_agent.py    # Unit tests
+├── e2e/                       # Browser test: the dashboard in Chromium
 ├── Makefile                   # Commands
 ├── pyproject.toml             # Dependencies
 └── .env.example               # Environment template
