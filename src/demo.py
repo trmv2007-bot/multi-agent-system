@@ -28,10 +28,23 @@ DEMO_BANNER = (
 )
 
 DEMO_ANSWER = (
-    "Scripted demo answer. No model key is configured, so every call in this run "
-    "was answered from src/demo.py: the graph, the validator and the cost meter "
-    "are real, the words are not researched. Add a key to .env and the same run "
-    "goes to a live model."
+    "**Scripted demo answer.** No model key is configured, so every call in this run "
+    "was answered from `src/demo.py`. The graph, the validator and the cost meter "
+    "below are real; the words are not researched.\n\n"
+    "| Step | Real | Scripted |\n"
+    "| --- | :---: | --- |\n"
+    "| Graph nodes and retries | yes | — |\n"
+    "| Claim validator | yes | — |\n"
+    "| Words of the answer | — | yes |\n\n"
+    "What the turn did, in order:\n\n"
+    "1. plan the work\n"
+    "2. run the nodes, retrying what fails\n"
+    "3. check each claim against the source it came from\n\n"
+    "Add a key to `.env` and the same run goes to a live model:\n\n"
+    "```bash\n"
+    "OPENAI_API_KEY=your-key-here\n"
+    "```\n\n"
+    "> Nothing here left this machine: no gateway, no key, no network."
 )
 
 RESEARCH_NOTES = (

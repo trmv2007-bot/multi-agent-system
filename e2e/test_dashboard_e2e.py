@@ -22,9 +22,10 @@ from playwright.sync_api import Browser, Locator, Page, expect, sync_playwright
 
 from src.config import settings
 from src.dashboard import server
-from src.dashboard.fake_model import ANSWER
 
-ANSWER_FRAGMENT = ANSWER[:40]
+# The scripted answer is markdown, so the fragment is a run of plain prose in it
+# rather than its first characters.
+ANSWER_FRAGMENT = "the words are not researched"
 COST_LINE = re.compile(r"^\d+ calls? · [\d.]+k? tokens · \d+s")
 STARTUP_SECONDS = 30
 TURN_SECONDS = 60_000
@@ -125,6 +126,32 @@ def test_agent_mode_answers_with_a_cost_line(
     page, problems = session
     ask(page, "What does this dashboard do?")
     expect_answer_and_cost(page, "What does this dashboard do?")
+    assert problems == []
+
+
+def test_answer_renders_markdown(session: tuple[Page, list[str]]) -> None:
+    """Bold, a table and a fenced block arrive as elements, not as characters."""
+    page, problems = session
+    ask(page, "What does the scripted answer look like?")
+    body = last_reply(page).locator(".bubble .md")
+
+    expect(body.locator("strong").first).to_have_text("Scripted demo answer.")
+    table = body.locator("table")
+    expect(table).to_have_count(1)
+    expect(table.locator("thead th")).to_have_count(3)
+    expect(table.locator("tbody tr")).to_have_count(3)
+    expect(table.locator("tbody tr").first.locator("td")).to_have_count(3)
+    expect(body.locator("pre code")).to_have_attribute("data-lang", "bash")
+    expect(body.locator("pre code")).to_contain_text("OPENAI_API_KEY")
+
+    # Nothing the model wrote as syntax is left on screen as syntax.
+    visible = body.inner_text()
+    assert "**" not in visible
+    assert "| --- |" not in visible
+    assert "```" not in visible
+    # The cost line is the turn's metadata, so it stays outside the answer.
+    expect(last_reply(page).locator(".cost")).to_have_text(COST_LINE)
+    assert last_reply(page).locator(".md .cost").count() == 0
     assert problems == []
 
 

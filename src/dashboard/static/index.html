@@ -222,6 +222,51 @@
     letter-spacing: .02em; animation: fade var(--slow) var(--ease) both;
   }
 
+  /* markdown, as a model writes it — rendered, not escaped */
+  .bubble .md { white-space: normal; }
+  .md > * { margin: 0; }
+  .md > * + * { margin-top: .7rem; }
+  .md p { margin: 0; }
+  .md strong { font-weight: 650; color: #f3f7fd; }
+  .md em { font-style: italic; }
+  .md del { color: var(--muted); }
+  .md a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(110, 168, 255, .35); }
+  .md a:hover { border-bottom-color: currentColor; }
+  .md code {
+    font: 500 .86em/1.5 var(--mono); background: #1a2230; border: 1px solid var(--line);
+    border-radius: 5px; padding: .06em .34em; color: #d9e3f4; overflow-wrap: anywhere;
+  }
+  .md pre {
+    background: #0b1017; border: 1px solid var(--line); border-radius: 9px;
+    padding: .6rem .75rem; overflow-x: auto; white-space: pre; tab-size: 2;
+  }
+  .md pre code {
+    background: none; border: 0; border-radius: 0; padding: 0;
+    font-size: 12.5px; line-height: 1.6; color: #dfe8f6; display: block;
+  }
+  .md pre code[data-lang]::before {
+    content: attr(data-lang); display: block; margin-bottom: .45rem;
+    font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--faint); user-select: none;
+  }
+  .md table {
+    border-collapse: collapse; width: 100%; font-size: 13.5px;
+    display: block; overflow-x: auto; white-space: normal;
+  }
+  .md th, .md td { border: 1px solid var(--line); padding: .3rem .6rem; text-align: left; vertical-align: top; }
+  .md th { background: var(--panel-2); font-weight: 600; color: var(--text); }
+  .md tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+  .md .ta-c { text-align: center; }
+  .md .ta-r { text-align: right; }
+  .md blockquote { margin: 0; padding: .1rem 0 .1rem .8rem; border-left: 2px solid #34435c; color: var(--muted); }
+  .md ul, .md ol { margin: 0; padding-left: 1.3rem; }
+  .md li + li, .md li > ul, .md li > ol { margin-top: .25rem; }
+  .md li::marker { color: var(--faint); }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { line-height: 1.3; margin-top: 1rem; }
+  .md h1 { font-size: 1.3rem; } .md h2 { font-size: 1.16rem; } .md h3 { font-size: 1.06rem; }
+  .md h4, .md h5, .md h6 { font-size: 1rem; color: var(--muted); }
+  .md hr { border: 0; border-top: 1px solid var(--line); }
+
   /* build preview */
   .preview-stage {
     display: none; flex: 1; min-height: 0; flex-direction: column;
@@ -623,6 +668,7 @@
   </div>
 </div>
 
+<script src="/markdown.js"></script>
 <script>
 (() => {
   "use strict";
@@ -652,6 +698,39 @@
   }
 
   // ── chat turns ──────────────────────────────────────────────────
+  // An answer is markdown. Each top-level block is its own node, so a chunk that
+  // only extends the last block leaves the blocks above it untouched: no reflow,
+  // no replayed animation, and the text a person has selected stays selected.
+  function renderMarkdown(reply, text) {
+    reply.text = String(text == null ? "" : text);
+    if (!window.AGXMarkdown) {
+      showPlain(reply, reply.text);
+      return;
+    }
+    reply.body.classList.add("md");
+    const parts = window.AGXMarkdown.renderBlocks(reply.text);
+    for (let index = 0; index < parts.length; index += 1) {
+      const html = parts[index];
+      const existing = reply.body.children[index];
+      if (existing && existing.__md === html) continue;
+      const holder = document.createElement("template");
+      holder.innerHTML = html;
+      const node = holder.content.firstElementChild;
+      if (!node) continue;
+      node.__md = html;
+      if (existing) reply.body.replaceChild(node, existing);
+      else reply.body.appendChild(node);
+    }
+    while (reply.body.childElementCount > parts.length) reply.body.lastElementChild.remove();
+  }
+
+  // Errors, page notices and anything that is not an answer stay literal text.
+  function showPlain(reply, text) {
+    reply.text = String(text == null ? "" : text);
+    reply.body.classList.remove("md");
+    reply.body.textContent = reply.text;
+  }
+
   function addTurn(role, text) {
     $("empty")?.remove();
     const turn = document.createElement("div");
@@ -669,12 +748,14 @@
       bubble.appendChild(who);
     }
     const body = document.createElement("div");
-    body.textContent = text;
     bubble.appendChild(body);
     turn.appendChild(bubble);
+    const reply = { turn, bubble, body, text: "" };
+    if (role === "user") showPlain(reply, text);
+    else renderMarkdown(reply, text);
     $("thread-col").appendChild(turn);
     scrollLog();
-    return { turn, bubble, body };
+    return reply;
   }
 
   const scrollLog = () => { $("log").scrollTop = $("log").scrollHeight; };
@@ -732,10 +813,12 @@
       $("preview").srcdoc = document_;
       $("preview-code").textContent = document_;
       $("preview-stage").classList.remove("empty");
-      reply.body.textContent =
-        "I built a page for that. It is in the build box — switch to Build to see it, or use Code there to read the markup.";
+      showPlain(
+        reply,
+        "I built a page for that. It is in the build box — switch to Build to see it, or use Code there to read the markup."
+      );
     } else {
-      reply.body.textContent = text;
+      renderMarkdown(reply, text);
     }
   }
 
@@ -911,18 +994,18 @@
     function finish(kind, payload) {
       setStatus(kind === "ok" ? "done" : "stopped", kind === "ok" ? "" : "bad");
       $("send").disabled = false;
-      if (kind !== "ok" && payload) { reply.body.textContent = payload; reply.body.style.color = "#f0b3ad"; }
+      if (kind !== "ok" && payload) { showPlain(reply, payload); reply.body.style.color = "#f0b3ad"; }
       if (kind === "ok" && mode === "build") {
         $("preview-state").textContent = "built";
-        reply.body.textContent = "";
+        showPlain(reply, "");
       }
-      if (kind === "ok" && mode !== "build" && looksLikeDocument(reply.body.textContent)) {
+      if (kind === "ok" && mode !== "build" && looksLikeDocument(reply.text)) {
         // Late arrival: the page came in with the answer, not a step.
-        renderAnswer(reply, reply.body.textContent);
+        renderAnswer(reply, reply.text);
       }
       if (kind === "ok") {
         if (call.active) {
-          const text = reply.body.textContent;
+          const text = reply.text;
           if (window.speechSynthesis && text) {
             const spoken = text.replace(/https?:\/\/\S+/g, "").replace(/[*_#`]/g, "").slice(0, 600);
             const utterance = new SpeechSynthesisUtterance(spoken);
@@ -953,7 +1036,7 @@
             setCallPhase("listening", "listening");
           }
         } else {
-          say(reply.body.textContent);
+          say(reply.text);
         }
       }
       if (source) { source.close(); source = null; }
@@ -990,10 +1073,10 @@
         body: JSON.stringify({ thread_id: threadId, text, mode, subtasks: 3, intensity }),
       });
       const data = await response.json();
-      if (data.error) { reply.body.textContent = data.error; $("send").disabled = false; return; }
+      if (data.error) { showPlain(reply, data.error); $("send").disabled = false; return; }
       listen(data.run_id, reply);
     } catch {
-      reply.body.textContent = "Could not reach the dashboard server.";
+      showPlain(reply, "Could not reach the dashboard server.");
       $("send").disabled = false;
       setStatus("offline", "bad");
     }

@@ -440,6 +440,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Multi-agent dashboard", docs_url=None, redoc_url=None)
     app.add_api_route("/", index, methods=["GET"])
+    app.add_api_route("/markdown.js", markdown_script, methods=["GET"])
     app.add_api_route("/api/chat", chat, methods=["POST"])
     app.add_api_route("/api/chat/{thread_id}", history, methods=["GET"])
     app.add_api_route("/api/chat/{thread_id}", delete_thread, methods=["DELETE"])
@@ -461,6 +462,11 @@ def create_app() -> FastAPI:
 async def index() -> FileResponse:
     """Serve the chat page."""
     return FileResponse(STATIC_DIR / "index.html")
+
+
+async def markdown_script() -> FileResponse:
+    """Serve the vendored markdown renderer the page loads, with no network."""
+    return FileResponse(STATIC_DIR / "markdown.js", media_type="text/javascript")
 
 
 async def chat(request: ChatRequest) -> dict[str, Any]:
