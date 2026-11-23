@@ -67,6 +67,7 @@ dependencies = [
 multi-agent = "src.main:cli"
 multi-agent-mcp = "src.mcp.server:main"
 multi-agent-dashboard = "src.dashboard.server:main"
+multi-agent-demo = "src.demo:main"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
