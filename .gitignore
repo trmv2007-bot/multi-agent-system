@@ -175,3 +175,6 @@ multi-agent.sqlite-shm
 
 # Local agent thread state
 thread-state.json
+
+# Eval run output (the saved baseline is deliberate and stays tracked)
+evals/last.json

@@ -456,6 +456,54 @@ make typecheck  # MyPy type checking
 make sast       # Semgrep + Bandit security scan
 ```
 
+## Evals: scoring the answers
+
+`make test` proves the plumbing. The eval set scores what the plumbing produces:
+fifteen cases across the three modes, each naming the properties a good answer
+must have and the fabrications it must not contain.
+
+```bash
+make eval                  # scripted suite: no key, no gateway, no network
+make eval ARGS=--live      # the fifteen cases against the KeyPool gateway
+make eval ARGS="--live --case pipeline-stays-brief"   # one case
+make eval ARGS=--list      # the cases, without running anything
+```
+
+How to read a row:
+
+| Column | Reads |
+| --- | --- |
+| `score` | checks passed / checks asked, for that case |
+| `checks` | how many passed, out of how many |
+| `secs` | wall time for the case |
+| `calls` | model responses, so a retry inside one call is not counted separately |
+| `tokens` | prompt + completion tokens the provider reported |
+| `verdicts` | claims graded supported/unsupported/contradicted by the validator |
+
+A case passes only when every check passes; the summary score is the mean across
+cases, so a case collapsing costs the same as another case improving. Failed
+checks are listed under the table with what the check actually saw.
+
+Checks read only what the system can establish about itself: the answer's text
+(a required property present, a forbidden claim absent, a word cap, a source
+link, a complete HTML document), the validator's verdicts, whether `abstain`
+fired, how many subtasks were planned, and how many errors a run recorded. No
+case needs the live internet to judge.
+
+Every live run is written to `evals/last.json`. `--save-baseline` also stores it
+as `evals/baseline.json`, and from then on each live run prints a per-case delta
+and exits non-zero when any case scored lower - so a regression is a number
+rather than an opinion. `--json PATH` writes the record somewhere else.
+
+Stub mode (`--stub`, the default) runs three scripted scenarios through the real
+pipeline graph: a grounded answer that must pass, a fabricated one that must
+fail its exclusion, and a contradicted run that must abstain. CI runs it on every
+push, which is how the gate stays credential-free.
+
+What it does not measure: whether the prose is good, only whether the stated
+properties hold; and each case is a single sample, so a borderline answer can
+flip between runs. Re-run a case three times before believing a one-point move.
+
 ## Project Structure
 
 ```
@@ -481,6 +529,11 @@ multi-agent-system/
 │   │   └── server.py          # Tool server (stdio + HTTP)
 │   └── a2a/                   # A2A protocol
 │       └── server.py          # A2A server + client
+├── evals/                     # Answer-quality evals
+│   ├── cases.json             # The cases: properties an answer must have and must not
+│   ├── run.py                 # python -m evals.run (stub suite or --live)
+│   ├── harness.py             # Scoring, metrics, baseline comparison
+│   └── stub.py                # Scripted model that proves the harness in CI
 ├── tests/
 │   └── test_multi_agent.py    # Unit tests
 ├── Makefile                   # Commands
