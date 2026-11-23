@@ -225,9 +225,11 @@ class SynthesizerAgent(BaseAgent):
     async def execute(self, state: AgentState) -> dict[str, Any]:
         start = time.time()
 
+        # A resumed thread still holds every earlier turn's worker results.
+        mine = [item for item in state.subtask_results if item.get("turn", "") == state.turn]
         results = "\n\n".join(
             f"[Subtask {item['index'] + 1}] {item['task']}\n{item['content']}"
-            for item in sorted(state.subtask_results, key=lambda r: r.get("index", 0))
+            for item in sorted(mine, key=lambda r: r.get("index", 0))
         )
 
         response = await self._ainvoke(

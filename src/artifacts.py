@@ -248,13 +248,26 @@ def assemble_page(
 """
 
 
+def page_fragments(state: Any) -> list[str]:
+    """This turn's sections, one fragment per index, in page order.
+
+    A review round rewrites a section under the index it already occupies, so
+    the latest write for that index replaces the one before it instead of being
+    appended beside it. The live preview keys fragments by index for the same
+    reason, and the page written at the end has to agree with it.
+    """
+    current = [item for item in state.subtask_results if item.get("turn") == state.turn]
+    latest: dict[int, str] = {}
+    for item in current or state.subtask_results:
+        index = int(item.get("index", 0))
+        content = str(item.get("content", ""))
+        latest[index] = content or latest.get(index, "")
+    return [latest[index] for index in sorted(latest)]
+
+
 def artifact_event(state: Any, title: str) -> str:
     """The current page for a partially finished build."""
-    fragments = [
-        str(item.get("content", ""))
-        for item in sorted(state.subtask_results, key=lambda r: r.get("index", 0))
-    ]
-    return assemble_page(title, fragments)
+    return assemble_page(title, page_fragments(state))
 
 
 def _strip_wrappers(fragment: str) -> str:

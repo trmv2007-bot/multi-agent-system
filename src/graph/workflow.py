@@ -26,40 +26,40 @@ except ImportError:  # optional dependency: pip install langgraph-checkpoint-sql
     AsyncSqliteSaver = None  # type: ignore[assignment,misc]
 
 
-def create_researcher_node(agent: "BaseAgent") -> Any:
-    """Create researcher node for the graph."""
-
-    async def researcher_node(state: AgentState) -> dict[str, Any]:
-        return await agent.execute(state)
-
-    return researcher_node
+RECORD_KEYS = ("research_findings", "analysis_results", "validation_results")
+"""The lists an agent appends a turn's work to."""
 
 
-def create_analyst_node(agent: "BaseAgent") -> Any:
-    """Create analyst node for the graph."""
+def create_agent_node(agent: "BaseAgent") -> Any:
+    """Wrap one pipeline agent as a graph node scoped to the current turn.
 
-    async def analyst_node(state: AgentState) -> dict[str, Any]:
-        return await agent.execute(state)
+    A resumed thread still holds every earlier turn's findings and analysis, so
+    the agent is shown only this turn's records. What it writes is tagged with
+    this turn, which is what lets the next node scope its own read the same way.
+    """
 
-    return analyst_node
+    async def agent_node(state: AgentState) -> dict[str, Any]:
+        mine = state.model_copy(
+            update={
+                "research_findings": [
+                    finding
+                    for finding in state.research_findings
+                    if finding.get("turn") == state.turn
+                ],
+                "analysis_results": [
+                    analysis
+                    for analysis in state.analysis_results
+                    if analysis.get("turn") == state.turn
+                ],
+            }
+        )
+        update: dict[str, Any] = await agent.execute(mine)
+        for key in RECORD_KEYS:
+            if key in update:
+                update[key] = [{**record, "turn": state.turn} for record in update[key]]
+        return update
 
-
-def create_writer_node(agent: "BaseAgent") -> Any:
-    """Create writer node for the graph."""
-
-    async def writer_node(state: AgentState) -> dict[str, Any]:
-        return await agent.execute(state)
-
-    return writer_node
-
-
-def create_validator_node(agent: "BaseAgent") -> Any:
-    """Create validator node for the graph."""
-
-    async def validator_node(state: AgentState) -> dict[str, Any]:
-        return await agent.execute(state)
-
-    return validator_node
+    return agent_node
 
 
 def should_continue_research(state: AgentState) -> str:
@@ -147,11 +147,11 @@ def create_workflow(llm: Any = None, checkpointer: Any = None) -> Any:
 
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("researcher", create_researcher_node(agents[AgentRole.RESEARCHER]))
-    workflow.add_node("analyst", create_analyst_node(agents[AgentRole.ANALYST]))
-    workflow.add_node("validate_findings", create_validator_node(findings_validator))
-    workflow.add_node("validate_analysis", create_validator_node(analysis_validator))
-    workflow.add_node("writer", create_writer_node(agents[AgentRole.WRITER]))
+    workflow.add_node("researcher", create_agent_node(agents[AgentRole.RESEARCHER]))
+    workflow.add_node("analyst", create_agent_node(agents[AgentRole.ANALYST]))
+    workflow.add_node("validate_findings", create_agent_node(findings_validator))
+    workflow.add_node("validate_analysis", create_agent_node(analysis_validator))
+    workflow.add_node("writer", create_agent_node(agents[AgentRole.WRITER]))
 
     workflow.add_edge(START, "researcher")
     workflow.add_edge("researcher", "analyst")
