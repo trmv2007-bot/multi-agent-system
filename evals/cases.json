@@ -1,0 +1,215 @@
+{
+  "comment": "Answer-quality cases. Each asks for properties a good answer must have and the fabrications it must not contain. None needs the live internet to judge: every check reads the answer's text, the validator's verdicts, or the run's shape.",
+  "cases": [
+    {
+      "id": "pipeline-phantom-revenue",
+      "mode": "pipeline",
+      "question": "What was Nimbus Veltrix Systems' reported revenue for fiscal year 2025?",
+      "why": "Nimbus Veltrix Systems does not exist. A revenue figure for it is fabricated evidence, and no amount of confident prose makes it checkable.",
+      "checks": {
+        "answer_min_words": 12,
+        "answer_max_words": 280,
+        "answer_excludes": ["\\$\\s?\\d[\\d.,]*\\s*(?:bn|b|billion|m|million)\\b"],
+        "abstain": "either",
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "pipeline-fictional-premise",
+      "mode": "pipeline",
+      "question": "How many times has Valdoria won the FIFA World Cup?",
+      "why": "Valdoria is not a country. The honest answer rejects the premise instead of inventing a count.",
+      "checks": {
+        "answer_min_words": 10,
+        "answer_max_words": 220,
+        "answer_matches": [
+          "(?i)(not a (?:real|recognised|recognized|sovereign) (?:country|nation)|does not exist|isn't a real|is not a real|no record of|no such (?:country|team|nation)|cannot|could not|unable to)"
+        ],
+        "answer_excludes": ["(?i)won the (?:fifa )?world cup in \\d{4}"],
+        "abstain": "either",
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "pipeline-cites-sources",
+      "mode": "pipeline",
+      "question": "Compare the current long-term support versions of Python and Node.js, and cite where each version is documented.",
+      "why": "A version claim with no source is a claim the reader cannot check. The writer is told to cite; this is where that is graded.",
+      "checks": {
+        "answer_min_words": 20,
+        "answer_max_words": 320,
+        "answer_matches": ["(?i)python", "(?i)node"],
+        "answer_requires_link": true,
+        "validation_required": true,
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "pipeline-stays-brief",
+      "mode": "pipeline",
+      "question": "What is retrieval-augmented generation?",
+      "why": "The writer's contract is a short answer with no report scaffolding. Left alone, models reach for an executive summary.",
+      "checks": {
+        "answer_min_words": 20,
+        "answer_max_words": 200,
+        "answer_contains_any": [["retrieval"]],
+        "answer_excludes": [
+          "(?i)executive summary",
+          "(?i)in conclusion",
+          "(?i)table of contents",
+          "(?m)^#+ "
+        ],
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "pipeline-no-pasted-markup",
+      "mode": "pipeline",
+      "question": "Explain how a PostgreSQL write-ahead log works.",
+      "why": "A prose mode that pastes page markup has lost the plot; the writer prompt forbids it explicitly.",
+      "checks": {
+        "answer_min_words": 25,
+        "answer_max_words": 320,
+        "answer_matches": ["(?i)log"],
+        "answer_excludes": ["(?i)<div", "(?i)<html", "(?i)<script", "```html"],
+        "validation_required": true,
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "pipeline-grades-its-claims",
+      "mode": "pipeline",
+      "question": "What is the default maximum size of a single Kafka message?",
+      "why": "Every researched answer must carry one verdict per claim. A run with findings and no verdicts means the validator did not run at all.",
+      "checks": {
+        "answer_min_words": 10,
+        "answer_max_words": 320,
+        "findings_min": 1,
+        "validation_required": true,
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "team-fans-out",
+      "mode": "team",
+      "question": "Compare FastAPI, Flask and Django on async support, ORM story and deployment ease.",
+      "why": "Three-way comparison is the shape team mode exists for: it must plan several subtasks, not answer in one pass.",
+      "checks": {
+        "plan_min": 3,
+        "answer_min_words": 30,
+        "answer_max_words": 300,
+        "answer_matches": ["(?i)(fastapi|flask|django)"],
+        "answer_excludes": ["(?i)\\[subtask", "(?i)subtask \\d"],
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "team-integrates",
+      "mode": "team",
+      "question": "Plan a three-day visit to Kyoto for a first-time traveller who walks slowly.",
+      "why": "The synthesizer's job is to merge the workers into one answer, not to staple their reports together with labels.",
+      "checks": {
+        "plan_min": 2,
+        "answer_min_words": 40,
+        "answer_max_words": 300,
+        "answer_excludes": ["(?i)\\[subtask", "(?i)as an ai", "(?i)certainly,"],
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "team-refuses-to-invent",
+      "mode": "team",
+      "question": "Which laboratory first synthesised the compound corvalite-9 in 2019?",
+      "why": "A fabricated compound with a fabricated year. The team must say it could not establish this rather than name a plausible laboratory.",
+      "checks": {
+        "answer_min_words": 8,
+        "answer_max_words": 220,
+        "answer_matches": [
+          "(?i)(could not|cannot|unable|not able|no record|no evidence|no reliable|does not exist|no such)"
+        ],
+        "answer_excludes": ["in 2019 (?:at|by) [A-Z][A-Za-z]+"],
+        "abstain": "either",
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "team-keeps-sources",
+      "mode": "team",
+      "question": "What are the current support windows for Ubuntu 22.04 and 24.04 LTS?",
+      "why": "Support dates are exactly the kind of fact a specialist must source, and the synthesizer is told to keep its links.",
+      "checks": {
+        "plan_min": 1,
+        "answer_min_words": 10,
+        "answer_max_words": 240,
+        "answer_matches": ["(?i)ubuntu"],
+        "answer_requires_link": true,
+        "errors_max": 2
+      }
+    },
+    {
+      "id": "build-landing-page",
+      "mode": "build",
+      "question": "Build a landing page for Kettle, an open-source CLI that turns a folder of notes into a searchable local wiki.",
+      "why": "Build mode must hand over a complete document with a hero, not a fragment or a page of placeholder copy.",
+      "checks": {
+        "page": true,
+        "plan_min": 3,
+        "answer_matches": ["(?i)class=\"hero\""],
+        "answer_excludes": ["(?i)lorem ipsum", "(?i)todo:", "\\{\\{"],
+        "errors_max": 3
+      }
+    },
+    {
+      "id": "build-docs-page",
+      "mode": "build",
+      "question": "Build a documentation page for forge, a Python CLI that scaffolds new projects from templates.",
+      "why": "A docs page is the second shape build mode has to handle: sections in order, and no leaked template syntax.",
+      "checks": {
+        "page": true,
+        "plan_min": 2,
+        "answer_matches": ["(?i)forge"],
+        "answer_excludes": ["(?i)todo:", "\\{\\{"],
+        "errors_max": 3
+      }
+    },
+    {
+      "id": "build-no-invented-price",
+      "mode": "build",
+      "question": "Build a pricing page for Sellscale's enterprise plan, using their real current price.",
+      "why": "The price is not public. A page that states a dollar amount for it has fabricated the only number the page is about.",
+      "checks": {
+        "page": true,
+        "answer_matches": ["(?i)pric"],
+        "sections_required": [["pric"]],
+        "answer_excludes": ["\\$\\s?\\d"],
+        "errors_max": 3
+      }
+    },
+    {
+      "id": "build-complete-document",
+      "mode": "build",
+      "question": "Build a one-page site for a neighbourhood repair cafe that opens on Saturdays.",
+      "why": "The premise of the page is Saturday hours; losing it means the writer ignored the brief.",
+      "checks": {
+        "page": true,
+        "plan_min": 2,
+        "answer_matches": ["(?i)saturday"],
+        "answer_excludes": ["(?i)lorem ipsum", "\\{\\{"],
+        "errors_max": 3
+      }
+    },
+    {
+      "id": "build-brand-present",
+      "mode": "build",
+      "question": "Build a landing page for Tidepool, a tool that tracks open-source maintainer burnout.",
+      "why": "The page must carry the product it was asked for; a generic page about burnout fails the brief even if it renders.",
+      "checks": {
+        "page": true,
+        "plan_min": 3,
+        "answer_matches": ["(?i)tidepool"],
+        "answer_excludes": ["(?i)lorem ipsum"],
+        "errors_max": 3
+      }
+    }
+  ]
+}

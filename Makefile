@@ -1,4 +1,4 @@
-.PHONY: install test run lint sast typecheck verify clean
+.PHONY: install test run lint sast typecheck verify eval clean
 
 # Default target
 all: install verify run
@@ -23,14 +23,20 @@ run-team:
 test:
 	pytest tests/ -v --cov=src --cov-report=term-missing
 
+# Score the answers against the eval cases. No flag runs the credential-free
+# stub suite (what CI runs); `make eval ARGS=--live` runs the real cases
+# against the KeyPool gateway.
+eval:
+	python -m evals.run $(ARGS)
+
 # Lint
 lint:
-	ruff check src/ tests/
-	ruff format --check src/ tests/
+	ruff check src/ tests/ evals/
+	ruff format --check src/ tests/ evals/
 
 # Type check
 typecheck:
-	mypy src/
+	mypy src/ evals/
 
 # SAST scan
 sast:
