@@ -345,10 +345,33 @@ python -m src.main "Design a landing page for a coffee shop" --team --cursor
 ```
 
 The chip shows the agent's name and its current step — `thinking`,
-`web_search: langgraph checkpointing`, `rate limited, retry in 6s`, `done`. The
-overlay is a no-op when the flag is absent, so headless runs and MCP calls pay
-nothing for it. If the session has no usable desktop it prints
+`web_search: langgraph checkpointing`, `rate limited, retry in 6s`, `done`.
+
+When an agent drives the desktop, the overlay also shows where the next action
+lands. The pointer travels to the target, rings it, and names the action in plain
+words — `Clicking Search`, `Typing into the address bar`, `Scrolling the page` —
+then the ring fades and the chip goes two seconds later.
+
+- **The ring** is a soft rounded outline around the control, the caret of the
+  field being typed into, or the point being clicked. It pulses once as the
+  cursor arrives and fades out after the action completes.
+- **The chip** sits beside the ring with the agent's name over what it is doing,
+  in words a person reads rather than tool names.
+- **Escape** hides the overlay; the next action brings it back.
+- **`CURSOR_GLIDE_MS`** (default `200`) is how long the travel takes, and
+  **`CURSOR_SETTLE_MS`** (default `150`) holds the action back just long enough
+  for the eye to follow it; `0` fires immediately.
+
+The overlay is a no-op unless something turns it on: with the flag absent, with
+`--no-cursor`, or with `CURSOR_OVERLAY` unset, a computer action pays about
+0.6 µs and no thread is started. With it on, an action pays the settle delay plus
+about 3 µs of publishing, and the drawing thread sits at roughly 0.4% of one
+core. If the session has no usable desktop it prints
 `cursor overlay unavailable: ...` once and carries on without it.
+
+The glide, the ring, the chip placement and every fade are pure functions and
+plain classes in `src/cursor_anim.py`, with no Tk import, so they are tested
+without a display; `src/overlay.py` only renders what they decide.
 
 ### CLI
 
@@ -515,6 +538,7 @@ multi-agent-system/
 │   ├── tools.py               # web_search, fetch_url, search_github, current_time
 │   ├── activity.py            # the event bus: what each agent is doing now
 │   ├── overlay.py             # live on-screen cursors, one per agent
+│   ├── cursor_anim.py         # cursor glide, ring and fade timing (no Tk)
 │   ├── dashboard/             # web dashboard (FastAPI + SSE + one HTML page)
 │   ├── artifacts.py           # page assembly + shared stylesheet for build mode
 │   ├── agents/                # Specialized agents
@@ -554,6 +578,11 @@ controls and their screen coordinates), `screen_shot`, `mouse_click`, `type_text
 `press_key` and `scroll`. A text model cannot see a screenshot, so the written
 description is what it works from, and every input action counts against
 `COMPUTER_MAX_ACTIONS` for the turn. Screenshots land in `screenshots/`.
+
+Each action names what it is aiming at, which is what the on-screen cursor points
+at: `mouse_click(x, y, target="Search")`, `type_text(text, target="the address
+bar")`. Typing and key actions ring the caret of the focused field, read straight
+from Win32 with no accessibility-tree walk.
 
 ## Production Deployment
 
@@ -612,6 +641,9 @@ make docker-run QUERY="Analyze AI trends"
 | `THINKING_LEVEL` | Thinking power: off/low/medium/high/max | `medium` |
 | `COMPUTER_USE` | Let agents drive the desktop | `false` |
 | `COMPUTER_MAX_ACTIONS` | Input actions allowed per turn | `25` |
+| `CURSOR_OVERLAY` | Show the live cursor overlay without `--cursor` | `false` |
+| `CURSOR_SETTLE_MS` | Pause before each action so the eye can follow | `150` |
+| `CURSOR_GLIDE_MS` | How long the cursor takes to travel to its target | `200` |
 | `MCP_SERVER_PORT` | MCP server port | `8001` |
 | `A2A_SERVER_PORT` | A2A server port | `8002` |
 

@@ -169,6 +169,18 @@ class Settings(BaseSettings):
         default=25,
         description="Input actions a single turn may perform when computer use is on",
     )
+    cursor_overlay: bool = Field(
+        default=False,
+        description="Show the live cursor overlay on every run, without needing --cursor",
+    )
+    cursor_settle_ms: int = Field(
+        default=150,
+        description="Pause before a computer action so the cursor visibly arrives; 0 disables it",
+    )
+    cursor_glide_ms: int = Field(
+        default=200,
+        description="How long the on-screen agent cursor takes to travel to its target",
+    )
     tool_retries: int = Field(
         default=2,
         description="Attempts per tool call when the network fails or the source errors",

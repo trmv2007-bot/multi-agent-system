@@ -110,16 +110,39 @@ class AgentActivity:
             }
         self._publish(event)
 
-    def pointer(self, x: float, y: float, label: str = "Agent", status: str = "") -> None:
-        """Report where the real mouse pointer is, for the on-screen overlay."""
+    def action(
+        self,
+        text: str,
+        x: float | None = None,
+        y: float | None = None,
+        bounds: tuple[float, float, float, float] | None = None,
+        label: str = "Agent",
+    ) -> None:
+        """Report where the next action will land, so the cursor travels to it.
+
+        ``text`` names the action in a person's words ("Clicking Search").
+        ``x``/``y`` is the point the action lands on, ``bounds`` the rectangle
+        around what it is acting on (a control, a field, a window).
+        """
         with self._lock:
             self._sequence += 1
             event: ActivityEvent = {
-                "type": "pointer",
-                "x": float(x),
-                "y": float(y),
+                "type": "action",
+                "text": text,
                 "label": label,
-                "status": status,
+                "point": None if x is None or y is None else [float(x), float(y)],
+                "bounds": None if bounds is None else [float(v) for v in bounds],
+                "seq": self._sequence,
+            }
+        self._publish(event)
+
+    def action_done(self, label: str = "Agent") -> None:
+        """Report that the action fired, so the ring can hold and then fade."""
+        with self._lock:
+            self._sequence += 1
+            event: ActivityEvent = {
+                "type": "action_done",
+                "label": label,
                 "seq": self._sequence,
             }
         self._publish(event)
@@ -193,9 +216,18 @@ class AgentActivity:
     # ── the on-screen overlay ────────────────────────────────────────
     def enable(self) -> Any:
         """Start the cursor overlay and subscribe it to this bus."""
+        from src.cursor_anim import GLIDE_MS
         from src.overlay import Overlay
 
-        overlay = Overlay()
+        glide = GLIDE_MS
+        try:
+            from src.config import settings
+
+            glide = float(settings.cursor_glide_ms)
+        except Exception as e:  # the overlay is cosmetic; never fail to start it
+            logger.debug("cursor glide setting unavailable: %s", e)
+
+        overlay = Overlay(glide_ms=glide)
         overlay.start()
         self.subscribe(overlay.on_event)
         self._overlay = overlay

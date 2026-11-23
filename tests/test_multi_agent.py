@@ -874,12 +874,15 @@ class TestAgentCursors:
         from src.overlay import Overlay
 
         events = queue_module.Queue()
-        events.put(("researcher", "Researcher", "thinking", "update"))
-        events.put(("worker.0", "Worker 1", "web_search: x", "update"))
-
         overlay = Overlay(events)
         overlay._screen_w, overlay._screen_h = 1920, 1080
-        overlay._drain()
+        overlay.on_event(
+            {"type": "agent", "key": "researcher", "label": "Researcher", "status": "thinking"}
+        )
+        overlay.on_event(
+            {"type": "agent", "key": "worker.0", "label": "Worker 1", "status": "web_search: x"}
+        )
+        overlay._drain(0.0)
 
         cursors = list(overlay._cursors.values())
         assert [c.label for c in cursors] == ["Researcher", "Worker 1"]
@@ -894,13 +897,17 @@ class TestAgentCursors:
         events = queue_module.Queue()
         overlay = Overlay(events)
         overlay._screen_w, overlay._screen_h = 1920, 1080
-        overlay._events.put(("researcher", "Researcher", "thinking", "update"))
-        overlay._drain()
+        overlay.on_event(
+            {"type": "agent", "key": "researcher", "label": "Researcher", "status": "thinking"}
+        )
+        overlay._drain(0.0)
         cursor = overlay._cursors["researcher"]
         first_target = cursor.target_x
 
-        overlay._events.put(("researcher", "Researcher", "web_search: x", "update"))
-        overlay._drain()
+        overlay.on_event(
+            {"type": "agent", "key": "researcher", "label": "Researcher", "status": "web_search: x"}
+        )
+        overlay._drain(0.0)
 
         assert cursor.status == "web_search: x"
         assert cursor.flash > 0

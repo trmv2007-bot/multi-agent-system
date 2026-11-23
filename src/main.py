@@ -38,6 +38,7 @@ class RunOptions:
     subtasks: int = DEFAULT_MAX_SUBTASKS
     cursor: bool = False
     fresh: bool = False
+    no_cursor: bool = False
 
     @property
     def mode(self) -> str:
@@ -45,6 +46,11 @@ class RunOptions:
         if self.build:
             return "build"
         return "team" if self.team else "pipeline"
+
+    @property
+    def cursors(self) -> bool:
+        """Whether the on-screen cursor overlay should run for this run."""
+        return (self.cursor or settings.cursor_overlay) and not self.no_cursor
 
 
 MODE_LABELS = {
@@ -166,7 +172,7 @@ async def main(
     llm = get_llm()
     start_run(f"{options.mode} · {query[:60]}")
 
-    if options.cursor:
+    if options.cursors:
         activity.enable()
         print("Cursors:  on - each agent appears on screen as it works")
 
@@ -180,7 +186,7 @@ async def main(
 
     _print_report(result)
     print(f"  Cost:              {format_run_summary(end_run())}")
-    if options.cursor:
+    if activity.enabled:
         activity.disable()
     return result
 
@@ -226,6 +232,11 @@ def cli() -> None:
         help="Show a live on-screen cursor for every agent as it works",
     )
     parser.add_argument(
+        "--no-cursor",
+        action="store_true",
+        help="Turn the cursor overlay off, even when CURSOR_OVERLAY is set",
+    )
+    parser.add_argument(
         "--provider",
         "-p",
         choices=sorted(MODEL_FIELDS),
@@ -268,6 +279,7 @@ def cli() -> None:
             build=args.build,
             subtasks=args.subtasks,
             cursor=args.cursor,
+            no_cursor=args.no_cursor,
             fresh=args.fresh,
         )
         asyncio.run(main(query, args.thread, options))

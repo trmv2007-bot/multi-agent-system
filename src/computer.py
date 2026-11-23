@@ -13,6 +13,7 @@ import ctypes
 import json
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,10 +21,47 @@ from src.config import PROJECT_ROOT, settings
 
 CAPTURE_DIR = PROJECT_ROOT / "screenshots"
 MAX_DESCRIBED_CONTROLS = 40
+CARET_RING_WIDTH = 130
 
 _actions = {"count": 0}
 
+# Where an action lands: the point it touches and the rectangle around it.
+Target = tuple[tuple[int, int] | None, tuple[int, int, int, int] | None]
+
 logger = logging.getLogger(__name__)
+
+
+class _Rect(ctypes.Structure):
+    """A Win32 RECT, spelled here so this module imports off Windows too."""
+
+    _fields_ = [
+        ("left", ctypes.c_int32),
+        ("top", ctypes.c_int32),
+        ("right", ctypes.c_int32),
+        ("bottom", ctypes.c_int32),
+    ]
+
+
+class _Point(ctypes.Structure):
+    """A Win32 POINT."""
+
+    _fields_ = [("x", ctypes.c_int32), ("y", ctypes.c_int32)]
+
+
+class _GuiThreadInfo(ctypes.Structure):
+    """The parts of GUITHREADINFO this module reads: the caret and its window."""
+
+    _fields_ = [
+        ("cbSize", ctypes.c_uint32),
+        ("flags", ctypes.c_uint32),
+        ("hwndActive", ctypes.c_void_p),
+        ("hwndFocus", ctypes.c_void_p),
+        ("hwndCapture", ctypes.c_void_p),
+        ("hwndMenuOwner", ctypes.c_void_p),
+        ("hwndMoveSize", ctypes.c_void_p),
+        ("hwndCaret", ctypes.c_void_p),
+        ("rcCaret", _Rect),
+    ]
 
 
 class ComputerUnavailable(RuntimeError):
@@ -53,17 +91,103 @@ def _guard() -> Any:
     return pyautogui
 
 
-def _announce(what: str) -> None:
-    """Show where the pointer is now, so the overlay can follow the real mouse."""
-    try:
-        import pyautogui
+def _beat(text: str, run: Callable[[], Any], where: Callable[[], Target]) -> None:
+    """Show the action, then do it: aim, settle, act, confirm.
 
+    ``text`` names the action in a person's words, and ``where`` is asked only
+    when something is listening, so a run with no overlay pays nothing. Every
+    overlay call is cosmetic: a failure here is logged and the action still runs.
+    """
+    showing = False
+    try:
         from src.activity import activity
 
-        position = pyautogui.position()
-        activity.pointer(position.x, position.y, "Agent", what)
+        if activity.listening:
+            point, bounds = where()
+            x, y = (float(point[0]), float(point[1])) if point else (None, None)
+            activity.action(text, x, y, bounds=bounds)
+            showing = True
     except Exception as e:  # the overlay is cosmetic; never break an action for it
-        logger.debug("pointer announce failed: %s", e)
+        logger.debug("aim failed: %s", e)
+
+    if showing and settings.cursor_settle_ms > 0:
+        time.sleep(settings.cursor_settle_ms / 1000.0)
+    try:
+        run()
+    finally:
+        _finish(showing)
+
+
+def _finish(showing: bool) -> None:
+    """Tell the overlay the action fired, so the ring can hold and then fade."""
+    if not showing:
+        return
+    try:
+        from src.activity import activity
+
+        activity.action_done("Agent")
+    except Exception as e:  # the overlay is cosmetic; never break an action for it
+        logger.debug("confirm failed: %s", e)
+
+
+def _pretty_keys(keys: str) -> str:
+    """A key chord the way a person writes it: ``ctrl+s`` becomes ``Ctrl+S``."""
+    parts = [part.strip() for part in keys.replace("+", " ").split() if part.strip()]
+    return "+".join(part.capitalize() for part in parts) or keys
+
+
+def _foreground_rect() -> tuple[int, int, int, int] | None:
+    """The focused window's screen rectangle, read straight from Win32."""
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        rect = _Rect()
+        if not hwnd or not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+        return (int(rect.left), int(rect.top), int(rect.right), int(rect.bottom))
+    except Exception as e:
+        logger.debug("window rect lookup failed: %s", e)
+        return None
+
+
+def _focus_target() -> Target:
+    """Where keystrokes will land: the caret's field if the desktop says so, else its window."""
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        info = _GuiThreadInfo()
+        info.cbSize = ctypes.sizeof(_GuiThreadInfo)
+        thread = user32.GetWindowThreadProcessId(hwnd, None)
+        if thread and user32.GetGUIThreadInfo(thread, ctypes.byref(info)) and info.hwndCaret:
+            caret = info.rcCaret
+            left, top = int(caret.left), int(caret.top)
+            right = max(int(caret.right), left + 3)  # a caret is one pixel wide
+            bottom = max(int(caret.bottom), top + 12)
+            origin = _Point(0, 0)
+            user32.ClientToScreen(info.hwndCaret, ctypes.byref(origin))
+            left, right = left + origin.x, right + origin.x
+            top, bottom = top + origin.y, bottom + origin.y
+            point = ((left + right) // 2, (top + bottom) // 2)
+            return point, (
+                left - CARET_RING_WIDTH,
+                top - 12,
+                right + CARET_RING_WIDTH,
+                bottom + 12,
+            )
+    except Exception as e:
+        logger.debug("caret lookup failed: %s", e)
+
+    rect = _foreground_rect()
+    if rect is None:
+        return None, None
+    return ((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2), rect
+
+
+def _at(x: int | None, y: int | None) -> Target:
+    """The point an action was given, or the focused window when it names none."""
+    if x is None or y is None:
+        return _focus_target()
+    return (int(x), int(y)), None
 
 
 def _spend(what: str) -> None:
@@ -195,65 +319,89 @@ def screen_describe(limit: int = MAX_DESCRIBED_CONTROLS) -> dict[str, Any]:
     }
 
 
-def mouse_click(x: int, y: int, button: str = "left", clicks: int = 1) -> dict[str, Any]:
+def mouse_click(
+    x: int, y: int, button: str = "left", clicks: int = 1, target: str = ""
+) -> dict[str, Any]:
     """Click at a point in screen pixels."""
     pyautogui = _guard()
     _spend("click")
-    _announce("clicking")
-    pyautogui.click(x=int(x), y=int(y), button=button, clicks=max(1, min(int(clicks), 2)))
+    _beat(
+        f"Clicking {target}" if target else "Clicking",
+        lambda: pyautogui.click(
+            x=int(x), y=int(y), button=button, clicks=max(1, min(int(clicks), 2))
+        ),
+        lambda: _at(x, y),
+    )
     return {"clicked": [int(x), int(y)], "button": button, "clicks": clicks}
 
 
-def mouse_move(x: int, y: int) -> dict[str, Any]:
+def mouse_move(x: int, y: int, target: str = "") -> dict[str, Any]:
     """Move the pointer without clicking."""
     pyautogui = _guard()
     _spend("move")
-    _announce("moving")
-    pyautogui.moveTo(int(x), int(y), duration=0.2)
+    _beat(
+        f"Moving to {target}" if target else "Moving",
+        lambda: pyautogui.moveTo(int(x), int(y), duration=0.2),
+        lambda: _at(x, y),
+    )
     return {"moved_to": [int(x), int(y)]}
 
 
-def type_text(text: str) -> dict[str, Any]:
+def type_text(text: str, target: str = "") -> dict[str, Any]:
     """Type text into whatever has focus (pasted, so any unicode works)."""
     pyautogui = _guard()
     _spend("type")
-    _announce("typing")
-    try:
-        import pyperclip
+    method = ["paste"]
 
-        pyperclip.copy(text)
-        pyautogui.hotkey("ctrl", "v")
-        method = "paste"
-    except Exception:
-        pyautogui.typewrite(text, interval=0.02)
-        method = "keystrokes"
-    return {"typed": text[:80], "chars": len(text), "method": method}
+    def run() -> None:
+        try:
+            import pyperclip
+
+            pyperclip.copy(text)
+            pyautogui.hotkey("ctrl", "v")
+        except Exception:
+            method[0] = "keystrokes"
+            pyautogui.typewrite(text, interval=0.02)
+
+    _beat(f"Typing into {target}" if target else "Typing", run, _focus_target)
+    return {"typed": text[:80], "chars": len(text), "method": method[0]}
 
 
-def press_key(keys: str) -> dict[str, Any]:
+def press_key(keys: str, target: str = "") -> dict[str, Any]:
     """Press a key or chord, e.g. "enter" or "ctrl+s"."""
     pyautogui = _guard()
     _spend("key")
-    _announce("pressing")
     parts = [part.strip().lower() for part in keys.replace("+", " ").split() if part.strip()]
     if not parts:
         raise ComputerUnavailable("no key given")
-    if len(parts) == 1:
-        pyautogui.press(parts[0])
-    else:
-        pyautogui.hotkey(*parts)
+
+    def run() -> None:
+        if len(parts) == 1:
+            pyautogui.press(parts[0])
+        else:
+            pyautogui.hotkey(*parts)
+
+    name = _pretty_keys(keys)
+    _beat(f"Pressing {name} in {target}" if target else f"Pressing {name}", run, _focus_target)
     return {"pressed": "+".join(parts)}
 
 
-def scroll(amount: int, x: int | None = None, y: int | None = None) -> dict[str, Any]:
+def scroll(
+    amount: int, x: int | None = None, y: int | None = None, target: str = ""
+) -> dict[str, Any]:
     """Scroll the wheel; positive scrolls up."""
     pyautogui = _guard()
     _spend("scroll")
-    _announce("scrolling")
-    if x is not None and y is not None:
-        pyautogui.moveTo(int(x), int(y), duration=0.15)
-    pyautogui.scroll(int(amount))
-    return {"scrolled": int(amount), "at": [x, y] if x is not None else None}
+    where = (int(x), int(y)) if x is not None and y is not None else None
+
+    def run() -> None:
+        if where is not None:
+            pyautogui.moveTo(where[0], where[1], duration=0.15)
+        pyautogui.scroll(int(amount))
+
+    direction = "up" if int(amount) >= 0 else "down"
+    _beat(f"Scrolling {target}" if target else f"Scrolling {direction}", run, lambda: _at(x, y))
+    return {"scrolled": int(amount), "at": [x, y] if where is not None else None}
 
 
 def screen_size() -> dict[str, int]:
@@ -292,24 +440,28 @@ async def tool_screen_describe(limit: int = MAX_DESCRIBED_CONTROLS) -> str:
     return _result(screen_describe, limit=limit)
 
 
-async def tool_mouse_click(x: int, y: int, button: str = "left", clicks: int = 1) -> str:
+async def tool_mouse_click(
+    x: int, y: int, button: str = "left", clicks: int = 1, target: str = ""
+) -> str:
     """Click at screen pixel coordinates."""
-    return _result(mouse_click, x=x, y=y, button=button, clicks=clicks)
+    return _result(mouse_click, x=x, y=y, button=button, clicks=clicks, target=target)
 
 
-async def tool_type_text(text: str) -> str:
+async def tool_type_text(text: str, target: str = "") -> str:
     """Type text into the focused field."""
-    return _result(type_text, text=text)
+    return _result(type_text, text=text, target=target)
 
 
-async def tool_press_key(keys: str) -> str:
+async def tool_press_key(keys: str, target: str = "") -> str:
     """Press a key or chord."""
-    return _result(press_key, keys=keys)
+    return _result(press_key, keys=keys, target=target)
 
 
-async def tool_scroll(amount: int, x: int | None = None, y: int | None = None) -> str:
+async def tool_scroll(
+    amount: int, x: int | None = None, y: int | None = None, target: str = ""
+) -> str:
     """Scroll the wheel at a point."""
-    return _result(scroll, amount=amount, x=x, y=y)
+    return _result(scroll, amount=amount, x=x, y=y, target=target)
 
 
 def computer_tools() -> list[Any]:
@@ -336,12 +488,20 @@ def computer_tools() -> list[Any]:
         StructuredTool.from_function(
             coroutine=tool_mouse_click,
             name="mouse_click",
-            description="Click at screen pixel coordinates taken from screen_describe.",
+            description=(
+                "Click at screen pixel coordinates taken from screen_describe. "
+                "Pass target with the control's name in a few words ('Search', "
+                "'the Save button') so the person watching sees what is being clicked."
+            ),
         ),
         StructuredTool.from_function(
             coroutine=tool_type_text,
             name="type_text",
-            description="Type text into the focused field (pasted, so any characters work).",
+            description=(
+                "Type text into the focused field (pasted, so any characters work). "
+                "Pass target naming the field ('the address bar') so the person "
+                "watching sees where the text is going."
+            ),
         ),
         StructuredTool.from_function(
             coroutine=tool_press_key,
@@ -351,7 +511,10 @@ def computer_tools() -> list[Any]:
         StructuredTool.from_function(
             coroutine=tool_scroll,
             name="scroll",
-            description="Scroll the mouse wheel at a point. Positive scrolls up.",
+            description=(
+                "Scroll the mouse wheel at a point. Positive scrolls up. Pass target "
+                "naming what is being scrolled ('the page') when it is not obvious."
+            ),
         ),
     ]
 
