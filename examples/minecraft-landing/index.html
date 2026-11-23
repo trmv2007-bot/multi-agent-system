@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build Your Dream Block World — voxel sandbox game</title>
+<meta name="description" content="A sandbox block-building game for creators, explorers, and dreamers who want to mine, craft, and shape infinite voxel worlds, one block at a time.">
+<style>
+  :root {
+    --sky-top: #0d1526;
+    --sky-bottom: #23374f;
+    --grass: #5fae4a;
+    --grass-dark: #3f7d33;
+    --dirt: #8a5a3b;
+    --dirt-dark: #5f3d27;
+    --stone: #3a4351;
+    --surface: #141c28;
+    --surface-2: #1b2534;
+    --line: #2c3a4d;
+    --text: #eef2f7;
+    --muted: #a8b6c8;
+    --accent: #f2c14e;
+    --accent-dark: #b98d21;
+    --radius: 4px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; }
+
+  body {
+    background: var(--surface);
+    color: var(--text);
+    font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    width: min(1080px, calc(100% - 2.5rem));
+    margin-inline: auto;
+  }
+
+  h1, h2, h3 {
+    font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  /* ── hero ─────────────────────────────────────────────────────── */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(4rem, 11vw, 8rem) 0 clamp(7rem, 12vw, 10rem);
+    background:
+      radial-gradient(1px 1px at 12% 24%, #ffffff66 50%, transparent 51%),
+      radial-gradient(1px 1px at 78% 16%, #ffffff55 50%, transparent 51%),
+      radial-gradient(1px 1px at 34% 12%, #ffffff44 50%, transparent 51%),
+      radial-gradient(1px 1px at 62% 34%, #ffffff33 50%, transparent 51%),
+      linear-gradient(180deg, var(--sky-top), var(--sky-bottom));
+  }
+
+  .moon {
+    position: absolute;
+    top: 8%;
+    right: 12%;
+    width: 54px;
+    height: 54px;
+    background: #f4e6bd;
+    box-shadow: 0 0 0 6px #f4e6bd14, 0 0 60px 10px #f4e6bd22;
+  }
+
+  .hills {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: clamp(120px, 22vw, 210px);
+    background: linear-gradient(180deg, var(--grass), var(--grass-dark) 28%, var(--dirt) 30%, var(--dirt-dark));
+    clip-path: polygon(
+      0 46%, 6% 46%, 6% 32%, 14% 32%, 14% 46%, 22% 46%, 22% 22%, 32% 22%,
+      32% 46%, 44% 46%, 44% 36%, 56% 36%, 56% 46%, 66% 46%, 66% 26%,
+      74% 26%, 74% 46%, 86% 46%, 86% 34%, 94% 34%, 94% 46%, 100% 46%,
+      100% 100%, 0 100%
+    );
+  }
+
+  .hero .wrap { position: relative; z-index: 1; }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: .6rem;
+    font: 600 12px/1 ui-monospace, monospace;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.4rem;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    background: linear-gradient(180deg, var(--grass) 0 40%, var(--dirt) 40% 100%);
+    box-shadow: inset -3px -3px 0 #00000030;
+  }
+
+  h1 {
+    font-size: clamp(2.1rem, 5.6vw, 3.9rem);
+    max-width: 24ch;
+  }
+
+  .subhead {
+    margin: 1.4rem 0 0;
+    max-width: 62ch;
+    font-size: clamp(1rem, 1.5vw, 1.15rem);
+    color: var(--muted);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .9rem;
+    align-items: center;
+    margin-top: 2.2rem;
+  }
+
+  /* ── blocky buttons ───────────────────────────────────────────── */
+  .btn {
+    display: inline-block;
+    padding: .95rem 1.7rem;
+    font: 700 15px/1 ui-monospace, monospace;
+    letter-spacing: .04em;
+    color: #17130a;
+    background: var(--accent);
+    border: 0;
+    border-radius: var(--radius);
+    text-decoration: none;
+    box-shadow:
+      inset -4px -4px 0 var(--accent-dark),
+      inset 4px 4px 0 #ffe8a3,
+      0 6px 0 #00000050;
+    transition: transform .08s ease, box-shadow .08s ease;
+  }
+
+  .btn:hover { transform: translateY(2px); box-shadow: inset -4px -4px 0 var(--accent-dark), inset 4px 4px 0 #ffe8a3, 0 4px 0 #00000050; }
+  .btn:active { transform: translateY(4px); box-shadow: inset -4px -4px 0 var(--accent-dark), inset 4px 4px 0 #ffe8a3, 0 2px 0 #00000050; }
+
+  .btn-ghost {
+    color: var(--text);
+    background: transparent;
+    box-shadow: inset 0 0 0 2px var(--line);
+  }
+  .btn-ghost:hover { box-shadow: inset 0 0 0 2px #465a76; }
+
+  /* ── sections ─────────────────────────────────────────────────── */
+  section { padding: clamp(3.5rem, 7vw, 6rem) 0; }
+
+  .section-label {
+    font: 600 12px/1 ui-monospace, monospace;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+
+  h2 { font-size: clamp(1.5rem, 3vw, 2.2rem); }
+
+  .features {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    margin-top: 2.5rem;
+  }
+
+  .feature {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1.6rem 1.5rem;
+    box-shadow: inset -3px -3px 0 #00000030;
+  }
+
+  .feature p { margin: .7rem 0 0; color: var(--muted); }
+
+  .feature .note {
+    display: block;
+    margin-top: 1.1rem;
+    font-size: .85rem;
+    color: var(--accent);
+    font-style: italic;
+  }
+
+  .blocks {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 1.1rem;
+  }
+
+  .blocks i {
+    width: 16px;
+    height: 16px;
+    display: block;
+    box-shadow: inset -3px -3px 0 #00000035;
+  }
+
+  .b-grass { background: linear-gradient(180deg, var(--grass) 0 45%, var(--dirt) 45% 100%); }
+  .b-stone { background: var(--stone); }
+  .b-gold { background: var(--accent); }
+  .b-wood { background: var(--dirt); }
+
+  /* ── testimonials ─────────────────────────────────────────────── */
+  .proof {
+    background:
+      linear-gradient(180deg, #101827, #0c121d);
+    border-block: 1px solid var(--line);
+  }
+
+  .quotes {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    margin-top: 2.5rem;
+  }
+
+  blockquote {
+    margin: 0;
+    padding: 1.6rem 1.5rem;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--grass);
+    border-radius: var(--radius);
+    color: var(--text);
+  }
+
+  blockquote footer {
+    margin-top: 1rem;
+    font-size: .85rem;
+    color: var(--muted);
+  }
+
+  .stat {
+    margin-top: 2.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .8rem;
+  }
+
+  .stat strong {
+    font: 700 clamp(1.8rem, 4vw, 2.6rem)/1 ui-monospace, monospace;
+    color: var(--accent);
+  }
+
+  .stat span { color: var(--muted); }
+
+  /* ── closing ──────────────────────────────────────────────────── */
+  .closing {
+    text-align: center;
+    background:
+      radial-gradient(60% 80% at 50% 0%, #1d2b3d 0%, transparent 70%),
+      var(--surface);
+  }
+
+  .closing p { color: var(--muted); max-width: 46ch; margin: 1.2rem auto 2rem; }
+
+  footer.site {
+    border-top: 1px solid var(--line);
+    padding: 1.75rem 0 2.5rem;
+    font-size: .82rem;
+    color: var(--muted);
+  }
+
+  footer.site .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: .6rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="moon" aria-hidden="true"></div>
+  <div class="hills" aria-hidden="true"></div>
+  <div class="wrap">
+    <p class="eyebrow">Voxel sandbox</p>
+    <h1>Build Your Dream Block World Today</h1>
+    <p class="subhead">
+      A sandbox block-building game for creators, explorers, and dreamers who want to
+      mine, craft, and shape infinite voxel worlds, one block at a time.
+    </p>
+    <div class="actions">
+      <a class="btn" href="#start">Start Building</a>
+      <a class="btn btn-ghost" href="#features">See what's inside</a>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <p class="section-label">Why players stay</p>
+    <h2>A world that keeps going, and people to build it with</h2>
+
+    <div class="features">
+      <article class="feature">
+        <span class="blocks" aria-hidden="true">
+          <i class="b-grass"></i><i class="b-grass"></i><i class="b-stone"></i>
+        </span>
+        <h3>Explore Without End</h3>
+        <p>
+          You never hit the edge of the map. Every direction reveals new biomes, hidden
+          caves, and surprises that keep your adventure fresh every time you log in.
+        </p>
+        <em class="note">Procedurally generated terrain that stretches forever.</em>
+      </article>
+
+      <article class="feature">
+        <span class="blocks" aria-hidden="true">
+          <i class="b-wood"></i><i class="b-wood"></i><i class="b-gold"></i>
+        </span>
+        <h3>Build Together, Not Alone</h3>
+        <p>
+          Invite your friends into your world and watch your ideas grow faster when you
+          build side by side. Shared projects turn solo sketches into massive cities you
+          can all be proud of.
+        </p>
+        <em class="note">Real-time multiplayer with no complicated setup.</em>
+      </article>
+
+      <article class="feature">
+        <span class="blocks" aria-hidden="true">
+          <i class="b-stone"></i><i class="b-gold"></i><i class="b-wood"></i>
+        </span>
+        <h3>Craft in Seconds, Not Hours</h3>
+        <p>
+          You don't need a manual to start making things. Snap blocks together intuitively
+          and spend your time creating, not figuring out complicated recipes.
+        </p>
+        <em class="note">Drag-and-drop crafting designed for first-time builders.</em>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="proof">
+  <div class="wrap">
+    <p class="section-label">Social proof</p>
+    <h2>Built by players, for players</h2>
+
+    <div class="quotes">
+      <blockquote>
+        "I log in every night just to see what my friends built while I was asleep. This
+        isn't just a game — it's a neighborhood made of blocks."
+        <footer>— Sam L., Weekend Architect</footer>
+      </blockquote>
+      <blockquote>
+        "The community challenges kept me coming back. We built a floating city together
+        in one weekend, and I've never been prouder of a pixel stack."
+        <footer>— Riley M., Guild Leader</footer>
+      </blockquote>
+    </div>
+
+    <p class="stat">
+      <strong>400,000+</strong>
+      <span>players across PC, console, and mobile</span>
+    </p>
+  </div>
+</section>
+
+<section class="closing" id="start">
+  <div class="wrap">
+    <p class="section-label">Your next build</p>
+    <h2>Your Next Build Starts Now</h2>
+    <p>
+      Grab your blocks, rally your crew, and claim your plot in a world made by players
+      like you.
+    </p>
+    <a class="btn" href="#start">Start Building Free</a>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="wrap">
+    <span>Copy written by the multi-agent team: planner, three parallel workers, one synthesizer.</span>
+    <span>Static page. No tracking, no external assets.</span>
+  </div>
+</footer>
+
+</body>
+</html>

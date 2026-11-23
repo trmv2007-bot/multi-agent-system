@@ -1,0 +1,1908 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-agent</title>
+<style>
+  :root {
+    --bg: #0a0d13;
+    --panel: #10151e;
+    --panel-2: #151c27;
+    --line: #202938;
+    --text: #e9eef7;
+    --muted: #8b9bb1;
+    --faint: #5d6c82;
+    --accent: #6ea8ff;
+    --ok: #4ec9a0;
+    --bad: #e2685f;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+    --ease: cubic-bezier(.22, .61, .36, 1);
+    --fast: 160ms;
+    --med: 240ms;
+    --slow: 320ms;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14.5px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* ── shell ───────────────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr) 322px;
+    height: 100%;
+    transition: grid-template-columns var(--slow) var(--ease);
+  }
+
+  .app.right-closed { grid-template-columns: 236px minmax(0, 1fr) 0px; }
+  .app.left-closed { grid-template-columns: 0px minmax(0, 1fr) 322px; }
+  .app.left-closed.right-closed { grid-template-columns: 0px minmax(0, 1fr) 0px; }
+
+  /* ── sidebar ─────────────────────────────────────────────────── */
+  .side {
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+    overflow: hidden;
+    transition: opacity var(--med) var(--ease);
+  }
+
+  .app.left-closed .side { opacity: 0; pointer-events: none; }
+
+  .brand {
+    padding: .95rem 1rem .7rem;
+    font: 700 13px/1.2 var(--mono);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .brand span { color: var(--faint); font-weight: 400; }
+
+  button.new {
+    margin: 0 .7rem .7rem;
+    padding: .55rem .7rem;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--text);
+    font: 600 12.5px/1 inherit;
+    cursor: pointer;
+    transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease),
+      transform var(--fast) var(--ease);
+  }
+  button.new:hover { border-color: #33455e; background: #1a2330; }
+  button.new:active { transform: scale(.985); }
+
+  .threads {
+    overflow-y: auto; padding: 0 .45rem .6rem;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+
+  .thread {
+    text-align: left; border: 0; background: transparent; color: var(--muted);
+    border-radius: 7px; padding: .48rem .6rem; font-size: 12.5px; cursor: pointer;
+    display: flex; justify-content: space-between; gap: .4rem;
+    animation: rise var(--med) var(--ease) both;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .thread:nth-child(2) { animation-delay: 30ms; }
+  .thread:nth-child(3) { animation-delay: 60ms; }
+  .thread:nth-child(4) { animation-delay: 90ms; }
+  .thread:nth-child(5) { animation-delay: 120ms; }
+  .thread:hover { background: var(--panel-2); color: var(--text); }
+  .thread.active { background: #1b2740; color: var(--text); }
+  .thread i { font: 10px/1 var(--mono); color: var(--faint); font-style: normal; flex: none; }
+
+  .side .foot { margin-top: auto; border-top: 1px solid var(--line); padding: .5rem; }
+
+  .side .foot button {
+    width: 100%; display: flex; align-items: center; gap: .5rem;
+    border: 0; background: transparent; color: var(--muted);
+    border-radius: 7px; padding: .5rem .55rem; font: 500 12.5px/1 inherit;
+    cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .side .foot button:hover { background: var(--panel-2); color: var(--text); }
+
+  /* ── canvas ──────────────────────────────────────────────────── */
+  .canvas {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    position: relative;
+  }
+
+  header.bar {
+    display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+    padding: .65rem .9rem; border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  .modes { display: flex; gap: 3px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
+  .modes button {
+    border: 0; background: transparent; color: var(--muted);
+    padding: .42rem .75rem; border-radius: 6px; font: 500 12px/1 inherit; cursor: pointer;
+    transition: background var(--med) var(--ease), color var(--med) var(--ease),
+      transform var(--fast) var(--ease);
+  }
+  .modes button:hover { color: var(--text); }
+  .modes button[aria-pressed="true"] { background: #22304a; color: var(--text); }
+  .modes button.deep[aria-pressed="true"] { background: #7a4a12; color: #ffd7a1; }
+  .modes button.super[aria-pressed="true"] { background: #7a1f1c; color: #ffc9c4; }
+  .modes button.holding { animation: hold 1s linear forwards; }
+  @keyframes hold { from { transform: scale(1); } to { transform: scale(.94); } }
+
+  .thread { position: relative; }
+  .thread .menu-btn {
+    border: 0; background: transparent; color: var(--faint); cursor: pointer;
+    font: 600 13px/1 var(--mono); padding: 0 .1rem; opacity: 0;
+    transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .thread:hover .menu-btn, .thread.open .menu-btn { opacity: 1; }
+  .thread .menu-btn:hover { color: var(--text); }
+
+  .thread-menu {
+    position: fixed; z-index: 70;
+    background: #1a2330; border: 1px solid #33455e; border-radius: 8px;
+    padding: .25rem; display: flex; flex-direction: column; min-width: 132px;
+    animation: rise var(--fast) var(--ease) both;
+    box-shadow: 0 16px 36px #000b;
+  }
+  .thread-menu button {
+    border: 0; background: transparent; color: var(--text); text-align: left;
+    padding: .4rem .55rem; border-radius: 6px; font: 500 12px/1 inherit; cursor: pointer;
+  }
+  .thread-menu button:hover { background: #22304a; }
+  .thread-menu button.danger { color: #ffb3ad; }
+  .thread-menu button.danger:hover { background: #3a1d1b; }
+  .modes button:active { transform: scale(.97); }
+
+  .tools { display: flex; align-items: center; gap: .45rem; }
+
+  .tools button.icon, header.bar button.icon {
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+    border-radius: 8px; padding: .42rem .6rem; font: 500 13px/1 inherit; cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
+      border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+  }
+  header.bar button.icon:hover, .tools button.icon:hover { color: var(--text); border-color: #33455e; }
+  header.bar button.icon:active, .tools button.icon:active { transform: scale(.94); }
+  header.bar button.icon[aria-pressed="false"] { color: var(--faint); }
+  .tools button {
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+    border-radius: 8px; padding: .45rem .7rem; font: 500 12px/1 inherit; cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
+      border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+  }
+  .tools button:hover { color: var(--text); border-color: #33455e; }
+  .tools button:active { transform: scale(.97); }
+  .tools button[aria-pressed="true"] { background: var(--accent); color: #06101f; border-color: var(--accent); }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: .4rem;
+    font: 500 11px/1 var(--mono); color: var(--faint);
+    text-transform: uppercase; letter-spacing: .1em;
+    transition: color var(--med) var(--ease);
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); transition: background var(--med) var(--ease); }
+  .pill.live { color: var(--ok); }
+  .pill.live .dot { background: var(--ok); animation: pulse 1.6s infinite; }
+  .pill.bad { color: var(--bad); }
+  .pill.bad .dot { background: var(--bad); }
+
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 #4ec9a066 } 70% { box-shadow: 0 0 0 6px #4ec9a000 } 100% { box-shadow: 0 0 0 0 #4ec9a000 } }
+  @keyframes rise { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+  @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+
+  /* messages */
+  .log { flex: 1; overflow-y: auto; padding: 1.3rem 1rem 1.6rem; min-height: 0; }
+  .thread-col { width: min(720px, 100%); margin-inline: auto; display: flex; flex-direction: column; gap: 1rem; }
+
+  .turn { display: flex; gap: .6rem; animation: rise var(--med) var(--ease) both; }
+  .turn.user { justify-content: flex-end; }
+
+  .bubble {
+    max-width: 84%; padding: .7rem .9rem; border-radius: 12px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    transition: box-shadow var(--med) var(--ease), transform var(--med) var(--ease);
+  }
+  .turn.user .bubble { background: #1d2b45; border: 1px solid #26385a; }
+  .turn.bot .bubble { background: var(--panel); border: 1px solid var(--line); }
+  .turn .who {
+    font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--faint); margin-bottom: .4rem;
+  }
+
+  /* build preview */
+  .preview-stage {
+    display: none; flex: 1; min-height: 0; flex-direction: column;
+    background: var(--bg);
+    animation: fade var(--med) var(--ease) both;
+  }
+  .preview-stage.on { display: flex; }
+  .canvas.building .log { display: none; }
+  .preview-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .45rem .8rem; border-bottom: 1px solid var(--line);
+    font: 500 11px/1 var(--mono); color: var(--muted);
+  }
+  .preview-bar .state { color: var(--accent); transition: color var(--med) var(--ease); }
+
+  .view-switch {
+    display: flex; gap: 2px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 7px; padding: 2px;
+  }
+  .view-switch button {
+    border: 0; background: transparent; color: var(--muted);
+    padding: .28rem .6rem; border-radius: 5px;
+    font: 600 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .view-switch button[aria-pressed="true"] { background: #22304a; color: var(--text); }
+
+  .preview-code {
+    flex: 1; margin: 0; padding: .9rem 1rem; overflow: auto; display: none;
+    background: #070a10; color: #c9d6e6;
+    font: 11.5px/1.6 var(--mono); white-space: pre; tab-size: 2;
+  }
+  .preview-stage.code .preview-frame { display: none; }
+  .preview-stage.code .preview-code { display: block; }
+  .preview-frame { flex: 1; width: 100%; border: 0; background: #0b0f16; opacity: .9; transition: opacity var(--med) var(--ease); }
+  .preview-stage { background: #070a10; }
+  .preview-stage::after {
+    content: "The page will build here";
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font: 12px/1 var(--mono); color: var(--faint); pointer-events: none;
+    opacity: 0; transition: opacity var(--med) var(--ease);
+  }
+  .preview-stage.empty::after { opacity: .7; }
+  .preview-frame.fresh { animation: fade var(--med) var(--ease) both; }
+
+  /* composer */
+  .composer-wrap { border-top: 1px solid var(--line); padding: .75rem .9rem .9rem; }
+  .composer {
+    width: min(720px, 100%); margin-inline: auto;
+    display: flex; gap: .5rem; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: .5rem;
+    transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  }
+  .composer:focus-within { border-color: #33455e; box-shadow: 0 0 0 3px #6ea8ff14; }
+  .composer textarea {
+    flex: 1; resize: none; border: 0; background: transparent; color: var(--text);
+    font: 14px/1.5 inherit; padding: .35rem; max-height: 150px; outline: none;
+  }
+  .composer .ghost {
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+    border-radius: 9px; padding: .5rem .6rem; cursor: pointer; font-size: 14px;
+    line-height: 1; transition: background var(--fast) var(--ease),
+      color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+  }
+  .composer .ghost:hover { color: var(--text); border-color: #33455e; }
+  .composer .ghost[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+  .composer .ghost.recording {
+    color: #ffb3ad; border-color: #7a1f1c; background: #3a1d1b;
+    animation: pulse 1.1s infinite;
+  }
+
+  .call-bar {
+    display: none; align-items: center; gap: .7rem;
+    width: min(720px, 100%); margin: 0 auto .55rem;
+    padding: .5rem .7rem; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--panel-2);
+    animation: rise var(--med) var(--ease) both;
+  }
+  .call-bar.on { display: flex; }
+  .call-bar .state {
+    display: inline-flex; align-items: center; gap: .45rem;
+    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); min-width: 7.5rem;
+    transition: color var(--fast) var(--ease);
+  }
+  .call-bar .state i {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--faint);
+    transition: background var(--fast) var(--ease);
+  }
+  .call-bar.listening .state { color: var(--ok); }
+  .call-bar.listening .state i { background: var(--ok); animation: pulse 1.6s infinite; }
+  .call-bar.recording .state { color: #ffb3ad; }
+  .call-bar.recording .state i { background: #e2685f; }
+  .call-bar.thinking .state { color: var(--accent); }
+  .call-bar.thinking .state i { background: var(--accent); animation: pulse 1.1s infinite; }
+  .call-bar.speaking .state { color: #ffd479; }
+  .call-bar.speaking .state i { background: #ffd479; }
+
+  .call-bar .wave {
+    display: flex; align-items: center; gap: 3px; height: 18px; flex: 1;
+  }
+  .call-bar .wave span {
+    width: 3px; border-radius: 2px; background: #33455e;
+    height: 12%; align-self: center;
+    transition: height 90ms linear, background 200ms var(--ease), border-radius 200ms var(--ease);
+  }
+
+  /* Nothing being said: a quiet row of dots that still breathes. */
+  .call-bar .wave.idle span {
+    height: 3px; width: 3px; border-radius: 50%; background: #3d4d63;
+    animation: dot 1.8s ease-in-out infinite;
+  }
+  .call-bar .wave.idle span:nth-child(3n) { animation-delay: .18s; }
+  .call-bar .wave.idle span:nth-child(3n+1) { animation-delay: .36s; }
+
+  @keyframes dot { 0%, 100% { opacity: .3 } 50% { opacity: .9 } }
+
+  .call-bar .live-text {
+    flex: 1 1 100%; order: 3; margin-top: .35rem;
+    font: 12px/1.4 var(--mono); color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-height: 1.1em;
+  }
+  .call-bar .hangup {
+    border: 1px solid #4a2523; background: #1e1211; color: #f0b3ad;
+    border-radius: 8px; padding: .4rem .7rem; font: 600 11.5px/1 inherit; cursor: pointer;
+    transition: background var(--fast) var(--ease);
+  }
+  .call-bar .hangup:hover { background: #3a1d1b; }
+
+  .composer .send {
+    flex: none;
+    border: 0; border-radius: 9px; padding: .6rem 1.05rem; cursor: pointer;
+    font: 600 12.5px/1 inherit; background: var(--accent); color: #06101f;
+    transition: background var(--fast) var(--ease), transform var(--fast) var(--ease), opacity var(--fast) var(--ease);
+  }
+  .composer .send:hover { filter: brightness(1.07); }
+  .composer .send:active { transform: scale(.97); }
+  .composer .send:disabled { background: #22304a; color: var(--faint); cursor: not-allowed; filter: none; }
+  .hint { width: min(720px, 100%); margin: .4rem auto 0; font-size: 11px; color: var(--faint); }
+
+  /* ── right panel: activity & notes ───────────────────────────── */
+  .right {
+    border-left: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button {
+    flex: 1; border: 0; background: transparent; color: var(--muted);
+    padding: .7rem .5rem; font: 600 11px/1 var(--mono); letter-spacing: .1em;
+    text-transform: uppercase; cursor: pointer;
+    transition: color var(--fast) var(--ease), box-shadow var(--med) var(--ease);
+  }
+  .tabs button[aria-pressed="true"] { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+
+  .pane { display: none; flex-direction: column; min-height: 0; overflow-y: auto; padding: .7rem; gap: .55rem; }
+  .pane.on { display: flex; animation: fade var(--med) var(--ease) both; }
+
+  .pane h3 {
+    font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+    color: var(--faint); margin: .3rem 0 .1rem;
+  }
+
+  .agent {
+    display: grid; grid-template-columns: 8px 1fr; gap: .5rem;
+    padding: .38rem .45rem; border-radius: 7px; font-size: 12px;
+    animation: rise var(--med) var(--ease) both;
+    transition: background var(--med) var(--ease);
+  }
+  .agent.busy { background: #16233a; }
+  .agent .who { color: var(--text); font-weight: 600; }
+  .agent .what {
+    color: var(--faint); font: 10.5px/1.4 var(--mono); overflow-wrap: anywhere;
+    transition: color var(--med) var(--ease);
+  }
+  .agent.busy .what { color: #b9cbe4; }
+  .agent .dot { margin-top: .35rem; width: 8px; height: 8px; border-radius: 50%; background: #3d4a5c; transition: background var(--med) var(--ease); }
+
+  .feed { display: flex; flex-direction: column; gap: .25rem; font: 11px/1.45 var(--mono); color: var(--muted); }
+  .feed .row { display: grid; grid-template-columns: 2.3rem 1rem 1fr; gap: .3rem; animation: rise var(--fast) var(--ease) both; }
+  .feed .row time { color: var(--faint); }
+  .feed .row .a { color: var(--accent); }
+  .feed .row.ok .a { color: var(--ok); }
+  .feed .row.bad .a { color: var(--bad); }
+  .feed .row b { color: var(--text); }
+  .feed .row .p { grid-column: 3; color: var(--faint); overflow-wrap: anywhere; }
+
+  .note-card {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2);
+    padding: .55rem .65rem; font-size: 12.5px; animation: rise var(--med) var(--ease) both;
+  }
+  .note-card .sel { font: 600 10.5px/1.3 var(--mono); color: var(--accent); }
+  .note-card p { margin: .3rem 0 0; }
+  .note-card button { margin-top: .35rem; border: 0; background: transparent; color: var(--faint); font: 11px/1 var(--mono); cursor: pointer; }
+  .note-card button:hover { color: var(--bad); }
+
+  .pane .copy {
+    margin-top: auto; padding: .5rem; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel-2); color: var(--text); font: 600 11.5px/1 inherit; cursor: pointer;
+    transition: background var(--fast) var(--ease);
+  }
+  .pane .copy:hover { background: #1a2330; }
+
+  /* ── overlays: settings + comment ───────────────────────────── */
+  .sheet {
+    position: fixed; inset: 0; display: none; z-index: 80;
+    background: #05070b99; backdrop-filter: blur(3px);
+    animation: fade var(--med) var(--ease) both;
+  }
+  .sheet.on { display: grid; place-items: center; }
+
+  .sheet .card {
+    width: min(420px, calc(100vw - 2rem));
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 1rem 1.1rem 1.1rem;
+    animation: rise var(--slow) var(--ease) both;
+  }
+  .sheet h2 { margin: 0 0 .8rem; font: 700 14px/1.2 var(--mono); }
+  .sheet dl { margin: 0; display: grid; grid-template-columns: 9.5rem 1fr; gap: .45rem .6rem; font-size: 12.5px; }
+  .sheet dt { color: var(--faint); }
+  .sheet dd { margin: 0; font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+  .sheet .acts { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; }
+  .sheet .acts button {
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    border-radius: 8px; padding: .45rem .8rem; font: 600 12px/1 inherit; cursor: pointer;
+    transition: background var(--fast) var(--ease);
+  }
+  .sheet .acts button:hover { background: #1a2330; }
+  .provider { display: flex; justify-content: space-between; font: 11.5px/1.6 var(--mono); color: var(--muted); }
+
+  .field {
+    display: grid; grid-template-columns: 1fr 132px; gap: .6rem;
+    align-items: center; margin-bottom: .35rem;
+  }
+  .field label { font-size: 12.5px; color: var(--muted); }
+  .field select { cursor: pointer; }
+  .field input, .field select {
+    width: 100%; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: .38rem .5rem; font: 12px/1.3 var(--mono); text-align: right;
+    transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  }
+  .field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px #6ea8ff1a; }
+  .field input.saved { border-color: var(--ok); box-shadow: 0 0 0 3px #4ec9a01a; }
+  .field.text { grid-template-columns: 1fr; }
+  .field.text input { text-align: left; }
+
+  .fixed {
+    margin-top: .9rem; padding-top: .7rem; border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: 8rem 1fr; gap: .3rem .6rem; font-size: 12px;
+  }
+  .fixed dt { color: var(--faint); }
+  .fixed dd { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+  .sheet .note { margin: .5rem 0 0; font-size: 11px; color: var(--faint); }
+  .sheet .save-state { font: 600 11px/1 var(--mono); color: var(--ok); opacity: 0; transition: opacity var(--med) var(--ease); }
+  .sheet .save-state.on { opacity: 1; }
+
+  .note-pop {
+    position: fixed; z-index: 90; width: 290px;
+    background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: .65rem;
+    box-shadow: 0 20px 44px #000b;
+    animation: rise var(--med) var(--ease) both;
+  }
+  .note-pop .target { font: 600 10.5px/1.3 var(--mono); color: var(--accent); margin-bottom: .4rem; }
+  .note-pop textarea {
+    width: 100%; min-height: 68px; resize: vertical; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.5 inherit; padding: .45rem;
+    transition: border-color var(--fast) var(--ease);
+  }
+  .note-pop textarea:focus { outline: none; border-color: var(--accent); }
+  .note-pop .acts { display: flex; justify-content: space-between; gap: .4rem; margin-top: .45rem; }
+  .note-pop button {
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    border-radius: 7px; padding: .35rem .7rem; font: 600 11.5px/1 inherit; cursor: pointer;
+    transition: background var(--fast) var(--ease);
+  }
+  .note-pop button.save { background: var(--accent); color: #06101f; border-color: var(--accent); }
+
+  body.commenting [data-note] { outline: 1px dashed #6ea8ff88; outline-offset: 2px; cursor: crosshair; transition: outline-color var(--fast) var(--ease), background var(--fast) var(--ease); }
+  body.commenting [data-note]:hover { outline: 2px solid var(--accent); background: #6ea8ff12; }
+
+  .empty-state { text-align: center; color: var(--faint); padding: 3rem 1rem; animation: fade var(--slow) var(--ease) both; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+
+  @media (max-width: 1080px) {
+    .app { grid-template-columns: 200px minmax(0, 1fr) 0; }
+    .right { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <aside class="side" data-note="sidebar" data-label="Left sidebar">
+    <div class="brand">Multi-agent <span>chat</span></div>
+    <button class="new" id="new-chat" data-note="new-chat" data-label="New chat">+ New chat</button>
+    <div class="threads" id="threads" data-note="thread-list" data-label="Saved conversations"></div>
+    <div class="foot">
+      <button id="settings-toggle" data-note="settings-button" data-label="Settings button">⚙ Settings</button>
+    </div>
+  </aside>
+
+  <main class="canvas" data-note="canvas" data-label="Main canvas">
+    <header class="bar" data-note="header" data-label="Top bar">
+      <div style="display:flex;align-items:center;gap:.45rem">
+        <button id="side-toggle" class="icon" aria-pressed="true" title="Toggle conversations"
+                data-note="side-toggle" data-label="Left panel toggle">☰</button>
+      <div class="modes" role="group" aria-label="Mode" data-note="mode-switch" data-label="Mode switch">
+        <button id="mode-agent" aria-pressed="true" data-note="mode-agent" data-label="Agent mode">Agent</button>
+        <button id="mode-research" aria-pressed="false" class="deep"
+                data-note="mode-research" data-label="Research mode">Research</button>
+        <button id="mode-build" aria-pressed="false" class="super"
+                data-note="mode-build" data-label="Build mode">Build</button>
+      </div>
+      </div>
+      <div class="tools">
+        <span class="pill" id="status" data-note="status-pill" data-label="Run status"><i class="dot"></i><span id="status-text">idle</span></span>
+        <button id="comment-toggle" aria-pressed="false" data-note="comment-toggle" data-label="Comment mode">Comment</button>
+        <button id="panel-toggle" data-note="panel-toggle" data-label="Activity panel toggle">Activity</button>
+      </div>
+    </header>
+
+    <div class="log" id="log" data-note="chat-log" data-label="Chat area">
+      <div class="thread-col" id="thread-col">
+        <div class="empty-state" id="empty">Ask something, or switch to Build and describe a page.</div>
+      </div>
+    </div>
+
+    <div class="preview-stage" id="preview-stage" data-note="preview-stage" data-label="Live preview">
+      <div class="preview-bar">
+        <span class="state" id="preview-state">waiting for the planner</span>
+        <div class="view-switch" role="group" aria-label="View">
+          <button id="view-preview" aria-pressed="true" data-note="view-preview" data-label="Preview toggle">Preview</button>
+          <button id="view-code" aria-pressed="false" data-note="view-code" data-label="Code toggle">Code</button>
+        </div>
+      </div>
+      <iframe class="preview-frame" id="preview" title="Live page preview" sandbox="allow-scripts"></iframe>
+      <pre class="preview-code" id="preview-code" data-note="preview-code" data-label="Generated HTML"></pre>
+    </div>
+
+    <div class="composer-wrap" data-note="composer-area" data-label="Composer">
+      <div class="composer">
+        <button class="ghost" id="call" title="Start a live voice call"
+                data-note="call-button" data-label="Live call button" hidden>🎧</button>
+        <textarea id="input" rows="1" placeholder="Message the agents…" data-note="composer-input" data-label="Message box"></textarea>
+        <button class="ghost" id="speak" title="Read replies aloud" aria-pressed="false"
+                data-note="speak-button" data-label="Read replies aloud">🔊</button>
+        <button class="send" id="send" data-note="send-button" data-label="Send">Send</button>
+      </div>
+      <div class="call-bar" id="call-bar" data-note="call-bar" data-label="Live call bar">
+        <span class="state"><i></i><span id="call-state">listening</span></span>
+        <div class="wave idle" id="call-wave" aria-hidden="true"></div>
+        <span class="live-text" id="call-live"></span>
+        <button class="hangup" id="hangup" data-note="hangup" data-label="End call">End</button>
+      </div>
+      <p class="hint" data-note="composer-hint" data-label="Composer hint">Enter to send · Shift+Enter for a new line · 🎧 for a live call</p>
+    </div>
+  </main>
+
+  <aside class="right" data-note="right-panel" data-label="Activity panel">
+    <div class="tabs">
+      <button id="tab-activity" aria-pressed="true" data-note="tab-activity" data-label="Activity tab">Activity</button>
+      <button id="tab-notes" aria-pressed="false" data-note="tab-notes" data-label="Notes tab">Notes <span id="note-count">0</span></button>
+    </div>
+
+    <div class="pane on" id="pane-activity" data-note="activity-pane" data-label="Activity pane">
+      <h3>Agents</h3>
+      <div id="agents" data-note="agent-list" data-label="Agent list"><p style="color:var(--faint);font-size:11.5px;margin:0">Nobody working yet.</p></div>
+      <h3>Tool calls</h3>
+      <div class="feed" id="feed" data-note="tool-feed" data-label="Tool call feed"><span style="color:var(--faint)">Nothing yet.</span></div>
+    </div>
+
+    <div class="pane" id="pane-notes" data-note="notes-pane" data-label="Notes pane">
+      <h3>Your comments</h3>
+      <div id="notes-list"></div>
+      <button class="copy" id="notes-copy" data-note="notes-copy" data-label="Copy notes">Copy all for Capy</button>
+    </div>
+  </aside>
+</div>
+
+<div class="sheet" id="settings-sheet" data-note="settings-sheet" data-label="Settings sheet">
+  <div class="card">
+    <h2>Settings <span class="save-state" id="save-state">saved</span></h2>
+    <form id="settings-form" data-note="settings-form" data-label="Settings form"></form>
+    <dl class="fixed" id="settings-fixed"></dl>
+    <p class="note">Changes are written to .env and apply to the next message.</p>
+    <div class="acts">
+      <button id="check-providers" type="button">Check providers</button>
+      <button id="settings-close" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const PALETTE = ["#6ea8ff", "#e0863c", "#4ec9a0", "#b267c4", "#e8b84b", "#4fa3c7"];
+
+  // Each mode keeps its own conversation: an Agent chat is never the Research chat.
+  const storedThread = (name) => localStorage.getItem("agx-thread-" + name) || "";
+  let threadId = storedThread(localStorage.getItem("agx-mode") || "agent");
+  let mode = localStorage.getItem("agx-mode") || "agent";
+  let source = null;
+  let commenting = false;
+  let agents = new Map();
+
+  const colourFor = (key) => {
+    let h = 0;
+    for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) % 997;
+    return PALETTE[h % PALETTE.length];
+  };
+
+  function setStatus(text, kind) {
+    const pill = $("status");
+    pill.classList.toggle("live", kind === "live");
+    pill.classList.toggle("bad", kind === "bad");
+    $("status-text").textContent = text;
+  }
+
+  // ── chat turns ──────────────────────────────────────────────────
+  function addTurn(role, text) {
+    $("empty")?.remove();
+    const turn = document.createElement("div");
+    turn.className = "turn " + (role === "user" ? "user" : "bot");
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    if (role !== "user") {
+      const who = document.createElement("div");
+      who.className = "who";
+      who.textContent =
+        mode === "build" ? (intensity === "super" ? "super build" : "builder")
+        : mode === "research" ? (intensity === "deep" ? "deep research" : "research")
+        : mode === "agent" ? "agent"
+        : "team";
+      bubble.appendChild(who);
+    }
+    const body = document.createElement("div");
+    body.textContent = text;
+    bubble.appendChild(body);
+    turn.appendChild(bubble);
+    $("thread-col").appendChild(turn);
+    scrollLog();
+    return { turn, body };
+  }
+
+  const scrollLog = () => { $("log").scrollTop = $("log").scrollHeight; };
+
+  // ── activity panel ─────────────────────────────────────────────
+  function cleanActivity() {
+    $("agents").textContent = "";
+    $("feed").textContent = "";
+    agents = new Map();
+  }
+
+  function renderAgent(event) {
+    let row = agents.get(event.key);
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "agent";
+      row.innerHTML = '<i class="dot"></i><div><div class="who"></div><div class="what"></div></div>';
+      $("agents").appendChild(row);
+      agents.set(event.key, row);
+    }
+    const busy = !["done", "failed"].includes((event.status || "").toLowerCase());
+    row.classList.toggle("busy", busy);
+    row.querySelector(".who").textContent = event.label || event.key;
+    const incoming = (event.status || "—").replace(/ · \d+s$/, "");
+    const previous = (row.dataset.base || "").replace(/ · \d+s$/, "");
+    // A heartbeat that only advances the seconds must not reset the local clock.
+    if (incoming !== previous) {
+      row.dataset.base = incoming;
+      row.dataset.since = String(Date.now());
+    }
+    row.querySelector(".what").textContent = row.dataset.base;
+    row.querySelector(".dot").style.background = busy ? colourFor(event.key) : "#3d4a5c";
+  }
+
+  const DOC_START = /<!doctype\s+html|<html[\s>]/i;
+
+  // A reply is a page when it carries a document, fenced or wrapped in prose.
+  function extractDocument(raw) {
+    let text = String(raw || "");
+    if (!DOC_START.test(text)) return "";
+    let body = text.replace(/^[\s\S]*?(?=<!doctype|<html)/i, "");
+    body = body.replace(/\n?```[\s\S]*$/, "");
+    return body.trim();
+  }
+
+  function looksLikeDocument(text) {
+    return extractDocument(text).length > 200;
+  }
+
+  // Show the reply, but never paste markup into the conversation.
+  function renderAnswer(reply, text) {
+    const document_ = extractDocument(text);
+    if (document_) {
+      lastHtml = document_;
+      $("preview").srcdoc = document_;
+      $("preview-code").textContent = document_;
+      $("preview-stage").classList.remove("empty");
+      reply.body.textContent =
+        "I built a page for that. It is in the build box — switch to Build to see it, or use Code there to read the markup.";
+    } else {
+      reply.body.textContent = text;
+    }
+  }
+
+  function tickActivity() {
+    const now = Date.now();
+    for (const row of agents.values()) {
+      if (!row.classList.contains("busy")) continue;
+      const what = row.querySelector(".what");
+      const base = (row.dataset.base || "").replace(/ · \d+s$/, "");
+      const since = Number(row.dataset.since || now);
+      const seconds = Math.max(0, Math.round((now - since) / 1000));
+      row.dataset.base = base;
+      what.textContent = seconds > 0 ? base + " · " + seconds + "s" : base;
+    }
+  }
+
+  setInterval(tickActivity, 1000);
+
+  // Every worker gets its own cursor over the section it is working on.
+  function syncCursors() {
+    const frame = $("preview");
+    if (!frame || !frame.contentWindow || !frame.srcdoc) return;
+    const list = [];
+    agents.forEach((row, key) => {
+      const match = /^worker\.(\d+)$/.exec(key);
+      if (!match) return;
+      const busy = row.classList.contains("busy");
+      list.push({
+        index: Number(match[1]),
+        label: row.querySelector(".who").textContent || "worker",
+        status: busy ? row.querySelector(".what").textContent : "done",
+        busy: busy,
+      });
+    });
+    frame.contentWindow.postMessage({ type: "agx-cursors", cursors: list }, "*");
+  }
+
+  function feedRow(event) {
+    const feed = $("feed");
+    const row = document.createElement("div");
+    row.className = "row " + (event.ok === false ? "bad" : "ok");
+    row.innerHTML = "<time></time><span class='a'></span><span><b></b></span>";
+    row.querySelector("time").textContent = (event.t || 0).toFixed(1) + "s";
+    row.querySelector(".a").textContent = event.ok === false ? "✕" : "→";
+    row.querySelector("b").textContent = (event.label || event.key) + " ";
+    row.querySelector("b").append(document.createTextNode(event.name + " “" + (event.arguments || "") + "”"));
+    if (event.preview) {
+      const preview = document.createElement("span");
+      preview.className = "p";
+      preview.textContent = (event.ok === false ? "failed: " : "← ") + event.preview;
+      row.appendChild(preview);
+    }
+    feed.appendChild(row);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  // ── preview (build mode) ───────────────────────────────────────
+  function showPreview(on) {
+    applyView();
+    $("preview-stage").classList.toggle("on", on);
+    document.querySelector(".canvas").classList.toggle("building", on);
+    $("preview-stage").classList.toggle("empty", !$("preview").srcdoc);
+  }
+
+  let lastHtml = "";
+  let previewView = "preview";
+
+  function applyView() {
+    $("preview-stage").classList.toggle("code", previewView === "code");
+    $("view-preview").setAttribute("aria-pressed", String(previewView === "preview"));
+    $("view-code").setAttribute("aria-pressed", String(previewView === "code"));
+  }
+
+  $("view-preview").addEventListener("click", () => {
+    previewView = "preview";
+    applyView();
+  });
+  $("view-code").addEventListener("click", () => {
+    previewView = "code";
+    applyView();
+  });
+
+  function setPreview(html, sections) {
+    const frame = $("preview");
+    showPreview(true);
+    frame.classList.remove("fresh");
+    void frame.offsetWidth;
+    lastHtml = html;
+    frame.srcdoc = html;
+    frame.classList.add("fresh");
+    $("preview-stage").classList.remove("empty");
+    $("preview-code").textContent = html;
+    $("preview-state").textContent = sections
+      ? "building · " + sections + (sections === 1 ? " section" : " sections")
+      : "planning sections";
+  }
+
+  function focusSection(key, label, status) {
+    const match = /^worker\.(\d+)$/.exec(key || "");
+    if (!match) return;
+    $("preview").contentWindow?.postMessage(
+      { type: "agx-focus", index: Number(match[1]), label, status },
+      "*"
+    );
+  }
+
+  // ── one turn ───────────────────────────────────────────────────
+  function listen(runId, reply) {
+    if (source) source.close();
+    cleanActivity();
+    source = new EventSource(`/api/stream/${runId}`);
+
+    source.onmessage = (message) => {
+      let event;
+      try { event = JSON.parse(message.data); } catch { return; }
+
+      if (event.type === "agent") {
+        renderAgent(event);
+        focusSection(event.key, event.label, event.status);
+        syncCursors();
+      } else if (event.type === "tool") {
+        feedRow(event);
+      } else if (event.type === "artifact") {
+        setPreview(event.html, event.sections || 0);
+      } else if (event.type === "state") {
+        if (event.artifact) setPreview(event.artifact, event.sections || 0);
+        if (event.answer && mode !== "build") {
+          renderAnswer(reply, event.answer);
+          scrollLog();
+        }
+      } else if (event.type === "done") {
+        finish("ok");
+      } else if (event.type === "failed") {
+        finish("bad", event.message);
+      } else if (event.type === "close" && source) {
+        source.close(); source = null;
+      }
+    };
+
+    source.onerror = () => {
+      if (source) { source.close(); source = null; }
+      if ($("send").disabled) finish("bad", "Lost the connection to the run.");
+    };
+
+    function finish(kind, payload) {
+      setStatus(kind === "ok" ? "done" : "stopped", kind === "ok" ? "" : "bad");
+      $("send").disabled = false;
+      if (kind !== "ok" && payload) { reply.body.textContent = payload; reply.body.style.color = "#f0b3ad"; }
+      if (kind === "ok" && mode === "build") {
+        $("preview-state").textContent = "built";
+        reply.body.textContent = "";
+      }
+      if (kind === "ok" && mode !== "build" && looksLikeDocument(reply.body.textContent)) {
+        // Late arrival: the page came in with the answer, not a step.
+        renderAnswer(reply, reply.body.textContent);
+      }
+      if (kind === "ok") {
+        if (call.active) {
+          const text = reply.body.textContent;
+          if (window.speechSynthesis && text) {
+            const spoken = text.replace(/https?:\/\/\S+/g, "").replace(/[*_#`]/g, "").slice(0, 600);
+            const utterance = new SpeechSynthesisUtterance(spoken);
+            if (chosenVoice) utterance.voice = chosenVoice;
+            utterance.rate = 1.02;
+            const back = () => {
+              call.spokeAt = Date.now();
+              if (call.active) setCallPhase("listening", "listening");
+            };
+            utterance.onend = back;
+            utterance.onerror = () => {
+              $("input").placeholder = "this browser will not speak — reply is on screen";
+              back();
+            };
+            speechSynthesis.cancel();
+            speechSynthesis.resume();
+            speechSynthesis.speak(utterance);
+            call.spokeAt = Date.now();
+            setCallPhase("speaking", "speaking");
+            // If the engine never starts, do not sit in "speaking" forever.
+            setTimeout(() => {
+              if (call.active && call.phase === "speaking" && !speechSynthesis.speaking) {
+                $("input").placeholder = "no speech voice available — reply is on screen";
+                back();
+              }
+            }, 1800);
+          } else if (call.active) {
+            setCallPhase("listening", "listening");
+          }
+        } else {
+          say(reply.body.textContent);
+        }
+      }
+      if (source) { source.close(); source = null; }
+      loadThreads();
+    }
+  }
+
+  // ── sending ────────────────────────────────────────────────────
+  async function send(options = {}) {
+    const input = $("input");
+    const text = input.value.trim();
+    if (!text) return;
+    if (!threadId) threadId = mode + "-" + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem("agx-thread-" + mode, threadId);
+
+    if (mode === "build") {
+      showPreview(true);
+      $("preview-state").textContent = "asking the planner";
+    }
+    if (call.active && options.spoken) setCallPhase("thinking", "thinking");
+
+    addTurn("user", text);
+    const reply = addTurn("assistant", "");
+    input.value = "";
+    input.style.height = "auto";
+    $("send").disabled = true;
+    setStatus("running", "live");
+    cleanActivity();
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread_id: threadId, text, mode, subtasks: 3, intensity }),
+      });
+      const data = await response.json();
+      if (data.error) { reply.body.textContent = data.error; $("send").disabled = false; return; }
+      listen(data.run_id, reply);
+    } catch {
+      reply.body.textContent = "Could not reach the dashboard server.";
+      $("send").disabled = false;
+      setStatus("offline", "bad");
+    }
+  }
+
+  // ── threads ───────────────────────────────────────────────────
+  async function loadThreads() {
+    try {
+      const response = await fetch("/api/threads");
+      const { threads } = await response.json();
+      const host = $("threads");
+      host.textContent = "";
+      for (const thread of threads.slice(0, 12)) {
+        const row = document.createElement("div");
+        row.className = "thread" + (thread.thread_id === threadId ? " active" : "");
+        row.dataset.id = thread.thread_id;
+
+        const title = document.createElement("span");
+        title.textContent = (thread.mode ? thread.mode + " · " : "") + thread.title;
+        title.style.flex = "1";
+        title.style.overflow = "hidden";
+        title.style.textOverflow = "ellipsis";
+        title.style.whiteSpace = "nowrap";
+
+        const count = document.createElement("i");
+        count.textContent = thread.turns + "×";
+
+        const menu = document.createElement("button");
+        menu.className = "menu-btn";
+        menu.textContent = "⋯";
+        menu.title = "Conversation options";
+
+        row.append(title, count, menu);
+        title.addEventListener("click", () => openThread(thread.thread_id));
+        count.addEventListener("click", () => openThread(thread.thread_id));
+        menu.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openThreadMenu(thread, menu);
+        });
+        host.appendChild(row);
+      }
+    } catch { /* convenience only */ }
+  }
+
+  function closeThreadMenu() {
+    document.querySelector(".thread-menu")?.remove();
+  }
+
+  function openThreadMenu(thread, anchor) {
+    const already = document.querySelector(".thread-menu");
+    closeThreadMenu();
+    if (already) return;  // a second click on the dots closes it
+
+    const menu = document.createElement("div");
+    menu.className = "thread-menu";
+    const open = document.createElement("button");
+    open.textContent = "Open";
+    const remove = document.createElement("button");
+    remove.className = "danger";
+    remove.textContent = "Delete";
+
+    open.addEventListener("click", () => {
+      closeThreadMenu();
+      openThread(thread.thread_id);
+    });
+    remove.addEventListener("click", async () => {
+      closeThreadMenu();
+      await fetch(`/api/chat/${thread.thread_id}`, { method: "DELETE" });
+      if (thread.thread_id === threadId) {
+        threadId = "";
+        localStorage.removeItem("agx-thread");
+        $("thread-col").textContent = "";
+      }
+      loadThreads();
+    });
+
+    menu.append(open, remove);
+    document.body.appendChild(menu);
+
+    // Float it beside the dots, inside the window, flipping up near the bottom.
+    const box = anchor.getBoundingClientRect();
+    const width = menu.offsetWidth || 132;
+    const height = menu.offsetHeight || 76;
+    const sidebar = document.querySelector(".side");
+    const sidebarRight = sidebar ? sidebar.getBoundingClientRect().right : box.right;
+
+    // Sit outside the sidebar, over the chat area, so no conversation is covered.
+    let left = sidebarRight + 8;
+    if (left + width > innerWidth - 8) left = Math.max(8, box.left - width - 8);
+
+    const room = innerHeight - box.bottom;
+    const top = room < height + 8 ? Math.max(8, box.top - height - 4) : box.bottom + 4;
+
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+  }
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".thread-menu, .menu-btn")) closeThreadMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeThreadMenu();
+  });
+  document.addEventListener("wheel", closeThreadMenu, { passive: true });
+
+  async function openThread(id) {
+    threadId = id;
+    localStorage.setItem("agx-thread-" + mode, id);
+    const response = await fetch(`/api/chat/${id}`);
+    const { messages, state } = await response.json();
+    $("thread-col").textContent = "";
+    for (const message of messages) {
+      addTurn(message.role === "user" ? "user" : "assistant", message.text);
+    }
+
+    // Whatever this conversation produced comes back with it.
+    const saved = state || {};
+    if (saved.artifact) {
+      lastHtml = saved.artifact;
+      $("preview").srcdoc = saved.artifact;
+      $("preview-code").textContent = saved.artifact;
+      showPreview(mode === "build");
+      $("preview-state").textContent =
+        "saved page · " + (saved.build_plan || []).length + " sections";
+    }
+    if (saved.findings && saved.findings.length) {
+      renderResearch(saved.findings);
+    }
+
+    loadThreads();
+    scrollLog();
+  }
+
+  function renderResearch(findings) {
+    const host = $("agents");
+    if (!host) return;
+    const wrap = document.createElement("div");
+    wrap.dataset.role = "research";
+    wrap.innerHTML =
+      '<h3 style="margin:.6rem 0 .3rem">Research held</h3>' +
+      findings
+        .slice(0, 6)
+        .map((item) => {
+          const head = (item.question || "note").slice(0, 60);
+          const src = (item.sources || [])[0] || "";
+          return (
+            '<div class="agent" style="grid-template-columns:8px 1fr">' +
+            '<i class="dot" style="background:#4ec9a0;margin-top:.35rem"></i>' +
+            "<div><div class=\"who\">" + escapeHtml(head) + "</div>" +
+            '<div class="what">' + escapeHtml(String(item.content || "").slice(0, 90)) + "</div>" +
+            (src ? '<div class="what">' + escapeHtml(src.slice(0, 60)) + "</div>" : "") +
+            "</div></div>"
+          );
+        })
+        .join("");
+    host.prepend(wrap);
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // ── modes ─────────────────────────────────────────────────────
+  let intensity = localStorage.getItem("agx-intensity") || "normal";
+
+  function applyMode(next) {
+    mode = next;
+    if (next !== "research" && next !== "build") intensity = "normal";
+    localStorage.setItem("agx-mode", next);
+    localStorage.setItem("agx-intensity", intensity);
+
+    for (const name of ["agent", "team", "research", "build"]) {
+      const button = $("mode-" + name);
+      if (button) button.setAttribute("aria-pressed", String(name === next));
+    }
+
+    const research = $("mode-research");
+    const build = $("mode-build");
+    research.textContent = intensity === "deep" && next === "research" ? "Deep research" : "Research";
+    build.textContent = intensity === "super" && next === "build" ? "Super build" : "Build";
+
+    // Each mode has its own history; switch to it rather than mixing.
+    const saved = localStorage.getItem("agx-thread-" + next) || "";
+    if (saved && saved !== threadId) {
+      threadId = saved;
+      openThread(saved);
+    } else if (!saved) {
+      threadId = "";
+      $("thread-col").textContent = "";
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.id = "empty";
+      empty.textContent = "New " + next + " conversation.";
+      $("thread-col").appendChild(empty);
+      cleanActivity();
+    }
+
+    $("input").placeholder =
+      next === "agent" ? "Tell the agent what to do…"
+      : next === "build" ? (intensity === "super" ? "Super build — describe the page, go big…" : "Ask for a change to the page…")
+      : next === "research" ? (intensity === "deep" ? "Deep research — what should the team dig into?"
+                                                     : "What should the researcher look into?")
+      : "Message the agents…";
+    showPreview(next === "build");
+  }
+
+  // Hold a mode for 3 seconds to raise its intensity, hold again to drop it.
+  const HOLD_MS = 1000;
+  let holdTimer = null;
+
+  function armHold(button, onLongPress) {
+    const start = () => {
+      button.classList.add("holding");
+      holdTimer = setTimeout(() => {
+        button.classList.remove("holding");
+        holdTimer = null;
+        onLongPress();
+      }, HOLD_MS);
+    };
+    const cancel = () => {
+      button.classList.remove("holding");
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    };
+    button.addEventListener("pointerdown", start);
+    button.addEventListener("pointerup", cancel);
+    button.addEventListener("pointerleave", cancel);
+  }
+
+  armHold($("mode-research"), () => {
+    intensity = intensity === "deep" ? "normal" : "deep";
+    mode = "research";
+    applyMode("research");
+  });
+
+  armHold($("mode-build"), () => {
+    intensity = intensity === "super" ? "normal" : "super";
+    mode = "build";
+    applyMode("build");
+  });
+
+  for (const name of ["agent", "research", "build"]) {
+    $("mode-" + name).addEventListener("click", () => applyMode(name));
+  }
+  applyMode(mode);
+  if (mode === "build" && !$("preview").srcdoc) {
+    $("preview-state").textContent = "describe a page to start";
+  }
+
+  // ── composer ──────────────────────────────────────────────────
+  $("send").addEventListener("click", send);
+  $("input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  $("input").addEventListener("input", () => {
+    const el = $("input");
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 150) + "px";
+  });
+
+  $("new-chat").addEventListener("click", () => {
+    threadId = "";
+    localStorage.removeItem("agx-thread-" + mode);
+    $("thread-col").textContent = "";
+    // A fresh conversation must not inherit the last page.
+    $("preview").srcdoc = "";
+    $("preview-state").textContent = mode === "build" ? "describe a page to start" : "";
+    lastHtml = "";
+    $("preview-code").textContent = "";
+    const research = $("agents").querySelector('[data-role="research"]');
+    if (research) research.remove();
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.id = "empty";
+    empty.textContent = "New conversation.";
+    $("thread-col").appendChild(empty);
+    cleanActivity();
+    if (mode === "build") $("preview").srcdoc = "";
+    loadThreads();
+  });
+
+  // ── panel + tabs ──────────────────────────────────────────────
+  function togglePanel() {
+    $("app").classList.toggle("right-closed");
+  }
+  $("panel-toggle").addEventListener("click", togglePanel);
+
+  function toggleSidebar() {
+    const closed = $("app").classList.toggle("left-closed");
+    $("side-toggle").setAttribute("aria-pressed", String(!closed));
+    localStorage.setItem("agx-left-closed", closed ? "1" : "0");
+  }
+  $("side-toggle").addEventListener("click", toggleSidebar);
+  if (localStorage.getItem("agx-left-closed") === "1") {
+    $("app").classList.add("left-closed");
+    $("side-toggle").setAttribute("aria-pressed", "false");
+  }
+
+  for (const tab of ["activity", "notes"]) {
+    $("tab-" + tab).addEventListener("click", () => {
+      $("tab-activity").setAttribute("aria-pressed", String(tab === "activity"));
+      $("tab-notes").setAttribute("aria-pressed", String(tab === "notes"));
+      $("pane-activity").classList.toggle("on", tab === "activity");
+      $("pane-notes").classList.toggle("on", tab === "notes");
+    });
+  }
+
+  // ── settings ──────────────────────────────────────────────────
+  let settingsInfo = null;
+
+  function renderSettings(info) {
+    settingsInfo = info;
+    const form = $("settings-form");
+    form.textContent = "";
+    for (const field of info.editable) {
+      const row = document.createElement("div");
+      row.className = "field" + (field.kind === "text" ? " text" : "");
+      const label = document.createElement("label");
+      label.textContent = field.label;
+      label.htmlFor = "set-" + field.key;
+      const input = field.kind === "choice" || field.kind === "toggle"
+        ? document.createElement("select")
+        : document.createElement("input");
+      input.id = "set-" + field.key;
+      input.dataset.key = field.key;
+      input.dataset.kind = field.kind;
+
+      const isSelect = field.kind === "choice" || field.kind === "toggle";
+
+      if (isSelect) {
+        for (const option of field.choices || []) {
+          const choice = document.createElement("option");
+          choice.value = option;
+          choice.textContent = option;
+          if (option === String(field.value)) choice.selected = true;
+          input.appendChild(choice);
+        }
+      } else {
+        input.value = field.value;
+        if (field.kind !== "text") {
+          input.type = "number";
+          if (field.min !== null) input.min = field.min;
+          if (field.max !== null) input.max = field.max;
+          input.step = field.kind === "float" ? "0.5" : "1";
+        }
+      }
+      row.append(label, input);
+      form.appendChild(row);
+    }
+
+    const fixed = $("settings-fixed");
+    fixed.textContent = "";
+    const facts = [
+      ["Provider", info.provider],
+      ["Chain", (info.chain || []).join(" → ")],
+      ["Base URL", info.base_url || "—"],
+      ["Threads in", info.checkpoint_db],
+    ];
+    for (const [key, value] of facts) {
+      const dt = document.createElement("dt");
+      dt.textContent = key;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      fixed.append(dt, dd);
+    }
+  }
+
+  async function openSettings() {
+    $("settings-sheet").classList.add("on");
+    try {
+      renderSettings(await (await fetch("/api/settings")).json());
+    } catch {
+      $("settings-form").textContent = "could not read settings";
+    }
+  }
+
+  async function saveSettings() {
+    const updates = {};
+    for (const input of $("settings-form").querySelectorAll("input, select")) {
+      const current = settingsInfo?.editable.find((f) => f.key === input.dataset.key);
+      if (!current) continue;
+      if (String(input.value) !== String(current.value)) updates[input.dataset.key] = input.value;
+    }
+    if (!Object.keys(updates).length) {
+      $("settings-close").click();
+      return;
+    }
+
+    const response = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates }),
+    });
+    const data = await response.json();
+    if (data.error) {
+      $("save-state").textContent = data.error;
+      $("save-state").style.color = "var(--bad)";
+      $("save-state").classList.add("on");
+      setTimeout(() => $("save-state").classList.remove("on"), 2600);
+      return;
+    }
+    renderSettings(data);
+    $("save-state").textContent = "saved";
+    $("save-state").style.color = "var(--ok)";
+    $("save-state").classList.add("on");
+    setTimeout(() => $("save-state").classList.remove("on"), 1600);
+  }
+
+  $("settings-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveSettings();
+  });
+  $("settings-form").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); saveSettings(); }
+  });
+  $("settings-toggle").addEventListener("click", openSettings);
+  $("settings-close").addEventListener("click", () => $("settings-sheet").classList.remove("on"));
+  $("settings-sheet").addEventListener("click", (e) => {
+    if (e.target === $("settings-sheet")) $("settings-sheet").classList.remove("on");
+  });
+
+  $("check-providers").addEventListener("click", async () => {
+    const state = $("save-state");
+    state.textContent = "checking…";
+    state.style.color = "var(--muted)";
+    state.classList.add("on");
+    try {
+      const { providers } = await (await fetch("/api/providers")).json();
+      const ok = providers.filter((p) => p.ok).length;
+      state.textContent = providers.map((p) => p.name + (p.ok ? " ✓" : " ✗")).join("  ");
+      state.style.color = ok ? "var(--ok)" : "var(--bad)";
+    } catch {
+      state.textContent = "check failed";
+      state.style.color = "var(--bad)";
+    }
+    setTimeout(() => state.classList.remove("on"), 4000);
+  });
+
+  // ── comments ──────────────────────────────────────────────────
+  const noteTarget = (element) => {
+    const holder = element.closest("[data-note]");
+    if (holder) return { selector: holder.dataset.note, label: holder.dataset.label || holder.dataset.note };
+    const path = [];
+    let node = element;
+    while (node && node.nodeType === 1 && path.length < 4) {
+      const cls = (node.className || "").toString().split(" ").filter(Boolean)[0];
+      path.unshift(node.tagName.toLowerCase() + (cls ? "." + cls : ""));
+      node = node.parentElement;
+    }
+    return { selector: path.join(" > "), label: element.tagName.toLowerCase() };
+  };
+
+  function openNotePop(target, x, y) {
+    document.querySelector(".note-pop")?.remove();
+    const pop = document.createElement("div");
+    pop.className = "note-pop";
+    pop.style.left = Math.min(x, innerWidth - 310) + "px";
+    pop.style.top = Math.min(y, innerHeight - 210) + "px";
+    pop.innerHTML =
+      '<div class="target"></div><textarea placeholder="What should change here?"></textarea>' +
+      '<div class="acts"><button class="cancel">Cancel</button><button class="save">Save</button></div>';
+    pop.querySelector(".target").textContent = target.label + " · " + target.selector;
+    document.body.appendChild(pop);
+    const area = pop.querySelector("textarea");
+    area.focus();
+    pop.querySelector(".cancel").addEventListener("click", () => pop.remove());
+    pop.querySelector(".save").addEventListener("click", async () => {
+      const text = area.value.trim();
+      if (!text) { pop.remove(); return; }
+      await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selector: target.selector, label: target.label, text, view: "chat" }),
+      });
+      pop.remove();
+      loadNotes();
+      $("tab-notes").click();
+    });
+  }
+
+  const COMMENT_EXEMPT = "#comment-toggle, #notes-toggle, #settings-toggle, .note-pop, .thread-menu";
+
+  document.addEventListener("click", (event) => {
+    if (!commenting) return;
+    if (event.target.closest(COMMENT_EXEMPT)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openNotePop(noteTarget(event.target), event.clientX + 10, event.clientY + 10);
+  }, true);
+
+  $("comment-toggle").addEventListener("click", () => {
+    commenting = !commenting;
+    $("comment-toggle").setAttribute("aria-pressed", String(commenting));
+    document.body.classList.toggle("commenting", commenting);
+  });
+
+  async function loadNotes() {
+    try {
+      const { notes } = await (await fetch("/api/notes")).json();
+      $("note-count").textContent = String(notes.length);
+      const host = $("notes-list");
+      host.textContent = "";
+      for (const note of notes) {
+        const card = document.createElement("div");
+        card.className = "note-card";
+        card.innerHTML = '<div class="sel"></div><p></p><button>remove</button>';
+        card.querySelector(".sel").textContent = note.label + " · " + note.selector;
+        card.querySelector("p").textContent = note.text;
+        card.querySelector("button").addEventListener("click", async () => {
+          await fetch(`/api/notes/${note.id}`, { method: "DELETE" });
+          loadNotes();
+        });
+        host.appendChild(card);
+      }
+    } catch { /* optional */ }
+  }
+
+  $("notes-copy").addEventListener("click", async () => {
+    const { notes } = await (await fetch("/api/notes")).json();
+    const text = notes.map((n) => `- [${n.selector}] (${n.label}): ${n.text}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text || "(no notes)");
+      $("notes-copy").textContent = "Copied";
+      setTimeout(() => ($("notes-copy").textContent = "Copy all for Capy"), 1400);
+    } catch {
+      $("notes-copy").textContent = "Copy failed";
+    }
+  });
+
+  // ── speech out ────────────────────────────────────────────────
+  const speakAloud = () => $("speak").getAttribute("aria-pressed") === "true";
+
+  // Windows ships neural voices ("Guy Online (Natural)") that sound far better
+  // than the default robotic one; prefer them, fall back to any English voice.
+  let chosenVoice = null;
+
+  function pickVoice() {
+    if (!window.speechSynthesis) return;
+    const english = speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
+    chosenVoice =
+      english.find((v) => /Natural/i.test(v.name) && /Guy|Andrew|Brian|Christopher|Ryan|Sonia|Libby/i.test(v.name)) ||
+      english.find((v) => /Natural|Online/i.test(v.name)) ||
+      english[0] ||
+      null;
+  }
+
+  if (window.speechSynthesis) {
+    speechSynthesis.onvoiceschanged = pickVoice;
+    pickVoice();
+  }
+
+  function say(text) {
+    if (!speakAloud() || !text || !window.speechSynthesis) return;
+    const spoken = text.replace(/https?:\/\/\S+/g, "").replace(/[*_#`]/g, "").slice(0, 600);
+    const utterance = new SpeechSynthesisUtterance(spoken);
+    if (chosenVoice) utterance.voice = chosenVoice;
+    utterance.rate = 1.02;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utterance);
+  }
+
+  $("speak").addEventListener("click", () => {
+    const on = !speakAloud();
+    $("speak").setAttribute("aria-pressed", String(on));
+    if (!on && window.speechSynthesis) speechSynthesis.cancel();
+  });
+
+  fetch("/api/voice")
+    .then((response) => response.json())
+    .then((data) => { $("call").hidden = !data.available; })
+    .catch(() => { $("call").hidden = true; });
+
+  // ── live call: listen, notice when you stop, act, speak, repeat ───
+  const call = {
+    active: false,
+    phase: "idle",      // listening | recording | thinking | speaking
+    stream: null,
+    context: null,
+    analyser: null,
+    recorder: null,
+    chunks: [],
+    spokeAt: 0,
+    silenceSince: 0,
+    speechSeen: 0,
+    startedAt: 0,
+    lastHeard: 0,
+    lastChunk: 0,
+    noise: 0.008,
+    pending: [],
+    utterance: [],
+    transcript: "",
+    raf: null,
+  };
+
+  const NOISE_FLOOR_MIN = 0.004;  // never treat this little as speech
+  const NOISE_FACTOR = 2.2;       // speech must be this far above the room
+  const SILENCE_MS = 400;         // this much quiet ends the sentence
+  const CHUNK_MS = 1100;          // transcribe this often while you are talking
+  const MIN_SPEECH_MS = 320;      // ignore coughs and clicks
+  const MAX_UTTERANCE_MS = 15000; // stop listening to one sentence eventually
+  const NO_INPUT_MS = 25000;      // say so if nothing was heard for this long
+
+  function setCallPhase(phase, label) {
+    call.phase = phase;
+    const bar = $("call-bar");
+    bar.className = "call-bar on " + phase;
+    $("call-state").textContent = label || phase;
+  }
+
+  function buildWave() {
+    const host = $("call-wave");
+    if (host.childElementCount) return;
+    for (let i = 0; i < 24; i++) host.appendChild(document.createElement("span"));
+  }
+
+  let lastLoudAt = 0;
+
+  function drawWave(level, speaking) {
+    const host = $("call-wave");
+    const bars = host.children;
+    const quiet = !speaking && Date.now() - lastLoudAt > 260;
+    host.classList.toggle("idle", quiet);
+
+    if (quiet) {
+      for (let i = 0; i < bars.length; i++) {
+        bars[i].style.height = "";
+        bars[i].style.background = "";
+      }
+      return;
+    }
+
+    const wobbleSeed = Date.now() / 220;
+    for (let i = 0; i < bars.length; i++) {
+      const wobble = 0.3 + 0.7 * Math.abs(Math.sin(i / bars.length * Math.PI * 1.5 + wobbleSeed));
+      const height = Math.min(100, Math.max(10, level * 900 * wobble));
+      bars[i].style.height = height + "%";
+      bars[i].style.background =
+        call.phase === "recording" ? "#e2685f"
+        : call.phase === "speaking" ? "#ffd479"
+        : speaking ? "#4ec9a0" : "#33455e";
+    }
+  }
+
+  function rmsOf(buffer) {
+    let sum = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      const v = buffer[i] / 128 - 1;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / buffer.length);
+  }
+
+  // 16 kHz mono WAV from float samples, so each chunk can be transcribed alone.
+  function encodeWav(samples, sampleRate) {
+    const step = Math.max(1, Math.round(sampleRate / 16000));
+    const length = Math.floor(samples.length / step);
+    const buffer = new ArrayBuffer(44 + length * 2);
+    const view = new DataView(buffer);
+    const write = (offset, text) => {
+      for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+    };
+
+    write(0, "RIFF");
+    view.setUint32(4, 36 + length * 2, true);
+    write(8, "WAVEfmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true);
+    view.setUint32(28, 32000, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    write(36, "data");
+    view.setUint32(40, length * 2, true);
+
+    let offset = 44;
+    for (let i = 0; i < length; i++) {
+      let sum = 0;
+      for (let k = 0; k < step; k++) sum += samples[i * step + k] || 0;
+      const value = Math.max(-1, Math.min(1, sum / step));
+      view.setInt16(offset, value < 0 ? value * 0x8000 : value * 0x7fff, true);
+      offset += 2;
+    }
+    return new Blob([view], { type: "audio/wav" });
+  }
+
+  // Send the audio collected since the last send and append what it heard.
+  async function flushChunk(final) {
+    const samples = final && call.utterance.length ? call.utterance : call.pending;
+    if (!samples.length) return;
+    if (!final) call.pending = [];
+    const seconds = samples.length / call.context.sampleRate;
+    if (seconds < 0.5 && !final) {
+      call.pending = samples.concat(call.pending);
+      return;
+    }
+    const blob = encodeWav(samples, call.context.sampleRate);
+
+    try {
+      const response = await fetch("/api/voice/transcribe", { method: "POST", body: blob });
+      const data = await response.json();
+      if (data.error) return;
+      call.transcript = (call.transcript + " " + data.text).trim();
+      $("input").value = call.transcript;
+      $("call-live").textContent = call.transcript;
+      $("input").dispatchEvent(new Event("input"));
+    } catch {
+      /* a dropped chunk should not break the call */
+    }
+  }
+
+  function startUtterance() {
+    if (!call.stream || (call.recorder && call.recorder.state === "recording")) return;
+    call.recorder = new MediaRecorder(call.stream);
+    call.chunks = [];
+    call.speechSeen = Date.now();
+    call.recorder.ondataavailable = (event) => call.chunks.push(event.data);
+    call.recorder.onstop = sendUtterance;
+    call.recorder.start();
+    call.startedAt = Date.now();
+    call.lastHeard = Date.now();
+    setCallPhase("recording", "hearing you");
+  }
+
+  function stopUtterance() {
+    if (call.recorder && call.recorder.state === "recording") call.recorder.stop();
+  }
+
+  async function sendUtterance() {
+    if (!call.active) return;
+    const blob = new Blob(call.chunks, { type: "audio/webm" });
+    if (blob.size < 2000) {
+      setCallPhase("listening", "listening");
+      return;
+    }
+    setCallPhase("thinking", "thinking");
+    try {
+      const response = await fetch("/api/voice/transcribe", { method: "POST", body: blob });
+      const data = await response.json();
+      if (data.error) {
+        setCallPhase("listening", "listening");
+        return;
+      }
+      if (/^(?:ok[,.! ]+)?(?:stop|cancel|never ?mind|quiet|that'?s (?:all|it|enough))[.!]?$/i.test(data.text)) {
+        if (source) { source.close(); source = null; }
+        if (current) fetch(`/api/cancel/${current}`, { method: "POST" }).catch(() => {});
+        setCallPhase("listening", "listening");
+        return;
+      }
+
+      $("input").value = data.text;
+      $("input").dispatchEvent(new Event("input"));
+      await send({ spoken: true });
+    } catch {
+      setCallPhase("listening", "listening");
+    }
+  }
+
+  function watchAudio() {
+    if (!call.active || !call.analyser) return;
+    const buffer = new Float32Array(call.analyser.fftSize);
+    call.analyser.getFloatTimeDomainData(buffer);
+    const level = rmsOf(buffer);
+
+    // The room sets the bar, not a fixed number: fans, keyboards and music
+    // would otherwise read as speech and the loop would record forever.
+    const threshold = Math.max(NOISE_FLOOR_MIN, call.noise * NOISE_FACTOR);
+    // Hysteresis: once a phrase has started, a lower bar keeps it going, so a
+    // quiet syllable mid-sentence does not chop the utterance in half.
+    const loud = level > (call.phase === "recording" ? threshold * 0.5 : threshold);
+    // Only quiet audio teaches the noise floor. Learning while someone is talking
+    // would raise the bar until their own voice counted as background.
+    if (!loud) call.noise = call.noise * 0.94 + level * 0.06;
+    drawWave(level, loud);
+
+    // Talking over the agent stops it, like a real conversation.
+    if (call.phase === "speaking" && loud && Date.now() - call.spokeAt > 350) {
+      speechSynthesis.cancel();
+      setCallPhase("listening", "listening");
+    }
+
+    if (call.phase === "listening") {
+      if (loud) {
+        call.transcript = "";
+        call.lastChunk = Date.now();
+        call.startedAt = Date.now();
+        lastLoudAt = Date.now();
+        $("input").value = "";
+        $("call-live").textContent = "hearing you…";
+        setCallPhase("recording", "hearing you");
+      } else if (call.lastHeard && Date.now() - call.lastHeard > NO_INPUT_MS) {
+        call.lastHeard = Date.now();
+        $("input").placeholder = "I cannot hear anything yet — check your microphone";
+      }
+      call.raf = requestAnimationFrame(watchAudio);
+      return;
+    }
+
+    if (call.phase === "recording") {
+      if (loud) {
+        call.silenceSince = 0;
+        call.lastHeard = Date.now();
+        lastLoudAt = Date.now();
+      } else if (!call.silenceSince) {
+        call.silenceSince = Date.now();
+      }
+
+      // Transcribe as they talk, so only the tail is left to do at the end.
+      if (Date.now() - call.lastChunk > CHUNK_MS) {
+        call.lastChunk = Date.now();
+        flushChunk(false);
+      }
+
+      const quietFor = call.silenceSince ? Date.now() - call.silenceSince : 0;
+      // Measured from when the phrase started, not from the last loud frame.
+      const spokeFor = call.silenceSince ? call.silenceSince - call.startedAt : 0;
+      const tooLong = Date.now() - call.startedAt > MAX_UTTERANCE_MS;
+
+      if (quietFor > SILENCE_MS || tooLong) {
+        call.silenceSince = 0;
+        if (spokeFor > MIN_SPEECH_MS || call.transcript) {
+          finishUtterance();
+        } else {
+          call.pending = [];
+          setCallPhase("listening", "listening");
+        }
+      }
+    }
+
+    call.raf = requestAnimationFrame(watchAudio);
+  }
+
+  async function finishUtterance() {
+    setCallPhase("thinking", "thinking");
+    // The words were already transcribed chunk by chunk while they were talking,
+    // so this is the fast path: no full re-run unless nothing arrived.
+    let text = (call.transcript || "").trim();
+    call.transcript = "";
+    if (!text) {
+      await flushChunk(true);
+      text = (call.transcript || "").trim();
+      call.transcript = "";
+    }
+    call.pending = [];
+    call.utterance = [];
+    if (!text) {
+      $("call-live").textContent = "";
+      $("input").placeholder = "did not catch that — say it again";
+      setCallPhase("listening", "listening");
+      return;
+    }
+
+    if (/^(?:ok[,.! ]+)?(?:stop|cancel|never ?mind|quiet|that'?s (?:all|it|enough))[.!]?$/i.test(text)) {
+      if (source) { source.close(); source = null; }
+      if (current) fetch(`/api/cancel/${current}`, { method: "POST" }).catch(() => {});
+      setCallPhase("listening", "listening");
+      return;
+    }
+
+    $("input").value = text;
+    $("call-live").textContent = text;
+    $("input").dispatchEvent(new Event("input"));
+    await send({ spoken: true });
+  }
+
+  async function startCall() {
+    if (call.active) return;
+    buildWave();
+    try {
+      call.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      $("input").placeholder = "microphone permission refused";
+      return;
+    }
+    call.context = new (window.AudioContext || window.webkitAudioContext)();
+    if (call.context.state === "suspended") await call.context.resume();
+    const source = call.context.createMediaStreamSource(call.stream);
+    call.analyser = call.context.createAnalyser();
+    call.analyser.fftSize = 1024;
+    source.connect(call.analyser);
+
+    // Raw samples are needed anyway: each chunk becomes a standalone WAV.
+    const processor = call.context.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (event) => {
+      if (!call.active) return;
+      const samples = event.inputBuffer.getChannelData(0);
+      for (let i = 0; i < samples.length; i++) {
+        call.pending.push(samples[i]);
+        call.utterance.push(samples[i]);
+      }
+      const keep = call.context.sampleRate * 20;
+      if (call.pending.length > keep) call.pending = call.pending.slice(-keep);
+      if (call.utterance.length > keep) call.utterance = call.utterance.slice(-keep);
+    };
+    source.connect(processor);
+    processor.connect(call.context.destination);
+
+    call.active = true;
+    call.silenceSince = 0;
+    call.lastHeard = Date.now();
+    call.noise = 0.008;
+    call.pending = [];
+    call.utterance = [];
+    call.transcript = "";
+    $("input").placeholder = "listening — just talk";
+    $("call").setAttribute("aria-pressed", "true");
+    $("speak").setAttribute("aria-pressed", "true");
+    setCallPhase("listening", "listening");
+    watchAudio();
+  }
+
+  function endCall() {
+    call.active = false;
+    if (call.raf) cancelAnimationFrame(call.raf);
+    if (call.recorder && call.recorder.state === "recording") call.recorder.stop();
+    if (call.stream) call.stream.getTracks().forEach((track) => track.stop());
+    if (call.context) call.context.close();
+    speechSynthesis.cancel();
+    $("call-bar").className = "call-bar";
+    $("call").setAttribute("aria-pressed", "false");
+    call.stream = null;
+    call.context = null;
+    call.analyser = null;
+  }
+
+  window.__callState = () => ({
+    phase: call.phase,
+    pending: call.pending.length,
+    chunks: call.transcript,
+    context: call.context ? call.context.state : null,
+    sampleRate: call.context ? call.context.sampleRate : null,
+  });
+
+  $("call").addEventListener("click", () => (call.active ? endCall() : startCall()));
+  $("hangup").addEventListener("click", endCall);
+
+  // ── boot ──────────────────────────────────────────────────────
+  if (threadId) openThread(threadId);
+  loadThreads();
+  loadNotes();
+})();
+</script>
+</body>
+</html>

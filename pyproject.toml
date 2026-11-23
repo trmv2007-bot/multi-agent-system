@@ -1,0 +1,187 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-agent-system"
+version = "0.1.0"
+description = "Production-ready multi-agent system: LangGraph + MCP + A2A + OTel"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Rishi", email = "rishi@example.com"}]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    # Core orchestration
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-mcp-adapters>=0.1.0",
+    
+    # A2A Protocol
+    "a2a-sdk>=1.0.0",
+    
+    # MCP
+    "mcp>=1.0.0,<2.0.0",
+    # "mcp-server-github>=0.1.0",  # Not available on PyPI, install separately if needed
+    
+    # Observability
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp>=1.20.0",
+    "opentelemetry-instrumentation-langchain>=0.40.0",
+    "langsmith>=0.1.0",
+    
+    # LLM providers
+    "openai>=1.30.0",
+    "anthropic>=0.25.0",
+    "google-generativeai>=0.7.0",
+    
+    # Utilities
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "uvicorn>=0.30.0",
+    "fastapi>=0.110.0",
+    
+    # Database
+    "asyncpg>=0.29.0",
+    # "langgraph-checkpoint-postgres>=1.0.0",  # Use langgraph's built-in postgres saver
+    
+    # Validation
+    "jsonschema>=4.21.0",
+]
+
+[project.scripts]
+multi-agent = "src.main:cli"
+multi-agent-mcp = "src.mcp.server:main"
+multi-agent-dashboard = "src.dashboard.server:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[project.optional-dependencies]
+voice = [
+    "faster-whisper>=1.0.0",
+]
+
+voice-gpu = [
+    "faster-whisper>=1.0.0",
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12",
+]
+
+computer = [
+    "pyautogui>=0.9.54",
+    "pywinauto>=0.6.9",
+    "pyperclip>=1.8.2",
+]
+
+postgres = [
+    "langgraph-checkpoint-postgres>=2.0.0",
+]
+
+dev = [
+    # Testing
+    "pytest>=8.2.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.13.0",
+    
+    # Linting
+    "ruff>=0.5.0",
+    
+    # Type checking
+    "mypy>=1.10.0",
+    "types-requests>=2.31.0",
+    
+    # Type stubs for the protobuf types used by the A2A card
+    "types-protobuf>=4.25.0",
+
+    # SAST (semgrep doesn't support Windows natively, install via WSL or separately)
+    # "semgrep>=1.90.0",
+    "bandit>=1.7.0",
+    
+    # Development
+    "ipython>=8.24.0",
+    "pre-commit>=3.7.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W", "C90", "PL", "RUF", "PTH", "TID", "PYI"]
+# PLC0415: heavy and optional dependencies (OTel, httpx, MCP, the agents
+# package) are imported inside functions to keep module import cheap and to
+# break the config <-> agents <-> graph cycle.
+ignore = ["E501", "PTH118", "PTH123", "PLC0415"]
+fixable = ["F", "I", "UP", "W"]
+unfixable = ["E", "C90", "PL", "RUF", "PTH", "TID", "PYI"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004"]
+"src/main.py" = ["C901"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_optional = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["langgraph.checkpoint.postgres"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pywinauto", "pyperclip", "faster_whisper", "ctranslate2"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "__pycache__"]
+# B104: 0.0.0.0 is the intended default for the MCP and A2A server hosts.
+# B311: random is used for retry jitter, not for anything security-related.
+skips = ["B101", "B601", "B104", "B311"]
+
+[tool.semgrep]
+config = ["p/security-audit", "p/secrets"]
