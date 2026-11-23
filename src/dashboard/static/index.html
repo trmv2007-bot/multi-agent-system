@@ -1055,7 +1055,32 @@
     }
     if (build.id === activeBuild) paintBuild(build);
     renderBuildTabs();
+    watchRunningBuilds();
     return build;
+  }
+
+  // A page refreshed mid-build has no stream of its own any more, so a running
+  // build is followed by asking the server what it has until it stops.
+  let buildPoll = null;
+
+  function watchRunningBuilds() {
+    const running = [...builds.values()].some((build) => build.running);
+    if (!running || source) {
+      // The run's own event stream is the fast path while it is open.
+      if (buildPoll) {
+        clearInterval(buildPoll);
+        buildPoll = null;
+      }
+      return;
+    }
+    if (buildPoll) return;
+    buildPoll = setInterval(async () => {
+      try {
+        const response = await fetch("/api/builds");
+        const { builds: rows } = await response.json();
+        for (const row of rows) applyBuild(row);
+      } catch { /* the run's own stream is the fast path when there is one */ }
+    }, 1500);
   }
 
   function activeBuildRow() {

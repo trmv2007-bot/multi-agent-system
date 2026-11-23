@@ -168,6 +168,13 @@ def last_reply(page: Page) -> Locator:
     return page.locator(".turn.bot").last
 
 
+def phase_of(status: str) -> tuple[int, int]:
+    """The section number and the section total a numbered phase names."""
+    match = SECTION_PHASE.match(status)
+    assert match is not None, status
+    return int(match.group(1)), int(match.group(2))
+
+
 def expect_answer_and_cost(page: Page, question: str) -> None:
     """The question is on screen, the answer rendered, and the cost line is under it."""
     expect(page.locator(".turn.user").last).to_contain_text(question)
@@ -264,9 +271,9 @@ def test_build_reports_progress_a_person_can_read(
     assert numbered, statuses
     assert statuses.index("planning") < statuses.index(numbered[0])
 
-    total = int(SECTION_PHASE.match(numbered[0]).group(2))
+    total = phase_of(numbered[0])[1]
     assert total >= SCRIPTED_SECTIONS
-    seen = [int(SECTION_PHASE.match(status).group(1)) for status in numbered]
+    seen = [phase_of(status)[0] for status in numbered]
     assert seen == sorted(seen), statuses
     # The plan's last section is the last one named; the scripted build is fast
     # enough that a started section can be replaced before the page paints it.
