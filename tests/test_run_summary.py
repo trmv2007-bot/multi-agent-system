@@ -63,9 +63,7 @@ async def test_counters_accumulate_across_a_multi_agent_run() -> None:
     model = CountingScripted(SUPPORTED, GROUNDED, meter)
     start_run("pipeline test")
 
-    await run_workflow(
-        QUESTION, "cost-test", llm=model, checkpointer=MemorySaver(), fresh=True
-    )
+    await run_workflow(QUESTION, "cost-test", llm=model, checkpointer=MemorySaver(), fresh=True)
     summary = run_summary()
 
     assert summary["calls"] == meter.calls >= 3
@@ -84,9 +82,7 @@ async def test_every_agent_gets_its_own_line() -> None:
     model = CountingScripted(SUPPORTED, GROUNDED, meter)
     start_run("pipeline test")
 
-    await run_workflow(
-        QUESTION, "cost-agents", llm=model, checkpointer=MemorySaver(), fresh=True
-    )
+    await run_workflow(QUESTION, "cost-agents", llm=model, checkpointer=MemorySaver(), fresh=True)
     summary = run_summary()
 
     assert len(summary["agents"]) >= 3
@@ -129,11 +125,14 @@ def test_summary_shape_is_stable() -> None:
 
 async def test_a_repaired_json_reply_is_counted() -> None:
     """A reply that only parses after repair shows up in the run's books."""
+
     async def unquoted_value(_messages: list[dict[str, Any]]) -> Any:
         return SimpleNamespace(content='{"verdict": supported}')
 
     start_run("repair test")
-    payload = await call_json(unquoted_value, [{"role": "user", "content": "verdict?"}], site="test")
+    payload = await call_json(
+        unquoted_value, [{"role": "user", "content": "verdict?"}], site="test"
+    )
     summary = run_summary()
 
     assert payload == {"verdict": "supported"}

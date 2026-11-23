@@ -381,7 +381,9 @@ class BaseAgent(ABC):
                 response = await llm.ainvoke(messages)
                 stop.set()
                 heartbeat.cancel()
-                record_model_call((actor or self._actor())[1], response, time.monotonic() - called_at, provider)
+                record_model_call(
+                    (actor or self._actor())[1], response, time.monotonic() - called_at, provider
+                )
                 return response
             except Exception as e:
                 last_error = e

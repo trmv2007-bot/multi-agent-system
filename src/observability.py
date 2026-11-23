@@ -302,9 +302,7 @@ class RunMeter:
         for call in calls:
             tokens = call.prompt_tokens + call.completion_tokens
             name = call.agent or "unattributed"
-            agent = agents.setdefault(
-                name, {"name": name, "calls": 0, "tokens": 0, "seconds": 0.0}
-            )
+            agent = agents.setdefault(name, {"name": name, "calls": 0, "tokens": 0, "seconds": 0.0})
             served = models.setdefault(
                 (call.provider, call.model),
                 {"provider": call.provider, "model": call.model, "calls": 0, "tokens": 0},
@@ -428,13 +426,17 @@ def _model_of(response: Any) -> str:
     return str(metadata.get("model_name") or metadata.get("model") or "")
 
 
+TOKENS_PER_KILO = 1000
+"""Where a token count gets abbreviated, so 18342 reads as 18k."""
+
+
 def _compact(tokens: int) -> str:
     """A token count at the width a reader wants: 18342 -> 18k."""
-    if tokens < 1000:
+    if tokens < TOKENS_PER_KILO:
         return str(tokens)
-    if tokens < 10_000:
-        return f"{tokens / 1000:.1f}k"
-    return f"{tokens / 1000:.0f}k"
+    if tokens < 10 * TOKENS_PER_KILO:
+        return f"{tokens / TOKENS_PER_KILO:.1f}k"
+    return f"{tokens / TOKENS_PER_KILO:.0f}k"
 
 
 def _plural(count: int) -> str:
