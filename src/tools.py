@@ -25,6 +25,9 @@ SEARCH_ATTEMPTS = 3
 GITHUB_SEARCH = "https://api.github.com/search"
 HTTP_FORBIDDEN = 403
 _TAG_RE = re.compile(r"<[^>]+>")
+_SCRIPT_RE = re.compile(r"<(script|style|noscript|template)\b[^>]*>.*?</\1>", re.S | re.I)
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
+_BLANK_RUN_RE = re.compile(r"[ \t\r\f\v]+")
 _RESULT_RE = re.compile(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', re.S)
 _SNIPPET_RE = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
 
@@ -32,6 +35,25 @@ _SNIPPET_RE = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
 def _strip_tags(fragment: str) -> str:
     """Turn a HTML fragment into plain text."""
     return html.unescape(_TAG_RE.sub("", fragment)).strip()
+
+
+def html_to_text(page: str) -> str:
+    """The readable text of a page: no scripts, styles, comments, or markup.
+
+    Both the researcher and the relevance filter read this, so markup has to go
+    first: a query term inside a ``<script>`` tag is not a page about the query,
+    and a page whose first two thousand characters are ``<head>`` chrome is not
+    shorter than one that gets to the point.
+    """
+    if "<" not in page:
+        return page.strip()
+
+    text = _COMMENT_RE.sub(" ", _SCRIPT_RE.sub(" ", page))
+    lines = (
+        _BLANK_RUN_RE.sub(" ", line).strip()
+        for line in html.unescape(_TAG_RE.sub(" ", text)).splitlines()
+    )
+    return "\n".join(line for line in lines if line)
 
 
 def _unwrap_redirect(href: str) -> str:
@@ -368,7 +390,12 @@ async def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
 
 
 async def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
-    """Fetch a URL and return its text content, truncated to max_chars."""
+    """Fetch a URL and return its readable text, truncated to max_chars.
+
+    HTML is reduced to its text, because a model reading markup spends its
+    context on ``<div>`` tags and a relevance check finds no words in a page it
+    cannot read. Everything that is not HTML is returned as it came.
+    """
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.get(url, follow_redirects=True)
@@ -376,7 +403,10 @@ async def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
         except Exception as e:
             return {"url": url, "error": str(e)}
 
+    content_type = response.headers.get("content-type", "unknown")
     content = response.text
+    if "html" in content_type.lower() or "<html" in content[:2000].lower():
+        content = html_to_text(content)
     if len(content) > max_chars:
         content = content[:max_chars] + "... [truncated]"
 
@@ -384,7 +414,7 @@ async def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
         "url": url,
         "status_code": response.status_code,
         "content": content,
-        "content_type": response.headers.get("content-type", "unknown"),
+        "content_type": content_type,
     }
 
 

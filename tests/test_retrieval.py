@@ -5,6 +5,7 @@ network, and nothing here needs a credential.
 """
 
 import logging
+from typing import Self
 
 import pytest
 
@@ -18,8 +19,10 @@ from src.tools import (
     dedupe_results,
     distinctive_terms,
     domain_of,
+    fetch_url,
     filter_sources,
     gather_sources,
+    html_to_text,
     is_relevant,
     rank_sources,
     source_rank,
@@ -45,6 +48,87 @@ def result(url: str, title: str = "") -> dict[str, str]:
 def page(url: str, content: str) -> dict[str, object]:
     """One fetched page, shaped as the fetch tool returns it."""
     return {"url": url, "content": content, "status_code": 200}
+
+
+class FakeResponse:
+    """One canned HTTP response, shaped as httpx returns it."""
+
+    def __init__(self, text: str, content_type: str = "text/html; charset=utf-8"):
+        self.text = text
+        self.status_code = 200
+        self.headers = {"content-type": content_type}
+
+    def raise_for_status(self) -> None:
+        """A canned 200 never raises."""
+
+
+class FakeClient:
+    """An httpx client that serves one canned response."""
+
+    def __init__(self, response: FakeResponse):
+        self._response = response
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> bool:
+        return False
+
+    async def get(self, _url: str, follow_redirects: bool = False) -> FakeResponse:
+        return self._response
+
+
+class TestPageText:
+    """A fetched page arrives as text, so relevance and ranking read words."""
+
+    def test_markup_scripts_and_styles_go(self):
+        page_html = (
+            "<html><head><style>.a{color:red}</style>"
+            '<script>var topic="checkpointer";</script></head>'
+            "<body><h1>The Postgres checkpointer</h1><p>It keeps LangGraph state.</p></body></html>"
+        )
+
+        assert html_to_text(page_html) == ("The Postgres checkpointer It keeps LangGraph state.")
+
+    def test_entities_are_decoded(self):
+        assert html_to_text("<p>Postgres &amp; LangGraph</p>") == "Postgres & LangGraph"
+
+    def test_plain_text_is_left_alone(self):
+        assert html_to_text("README: run the migrations first.") == (
+            "README: run the migrations first."
+        )
+
+    def test_words_only_in_a_script_do_not_make_a_page_on_topic(self):
+        page_html = (
+            '<html><head><script>var q="langgraph postgres checkpointer";</script></head>'
+            "<body><p>Trail shoes compared.</p></body></html>"
+        )
+        terms = distinctive_terms("langgraph postgres checkpointer")
+
+        assert is_relevant(terms, page_html)
+        assert not is_relevant(terms, html_to_text(page_html))
+
+    @pytest.mark.asyncio
+    async def test_fetch_url_returns_text_not_markup(self, monkeypatch):
+        response = FakeResponse("<html><body><p>Postgres checkpointer</p></body></html>")
+        monkeypatch.setattr(
+            tools.httpx, "AsyncClient", lambda *_args, **_kwargs: FakeClient(response)
+        )
+
+        fetched = await fetch_url(DOCS)
+
+        assert fetched["content"] == "Postgres checkpointer"
+
+    @pytest.mark.asyncio
+    async def test_fetch_url_leaves_plain_text_alone(self, monkeypatch):
+        response = FakeResponse("postgres = 5432", content_type="text/plain")
+        monkeypatch.setattr(
+            tools.httpx, "AsyncClient", lambda *_args, **_kwargs: FakeClient(response)
+        )
+
+        fetched = await fetch_url("https://example.com/app.conf")
+
+        assert fetched["content"] == "postgres = 5432"
 
 
 class TestDedupe:
