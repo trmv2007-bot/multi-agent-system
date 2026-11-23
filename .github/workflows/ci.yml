@@ -37,13 +37,13 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Lint (ruff check)
-        run: ruff check src/ tests/ evals/
+        run: ruff check src/ tests/ evals/ e2e/
 
       - name: Format (ruff format --check)
-        run: ruff format --check src/ tests/ evals/
+        run: ruff format --check src/ tests/ evals/ e2e/
 
       - name: Type check (mypy)
-        run: mypy src/ evals/
+        run: mypy src/ evals/ e2e/
 
       - name: Tests (pytest)
         run: python -m pytest tests/ -q
@@ -55,3 +55,31 @@ jobs:
 
       - name: SAST (bandit)
         run: bandit -c pyproject.toml -r src/
+
+  # The dashboard end to end, in a browser, apart from the unit matrix so a
+  # broken tab and a broken test never hide each other's results. The model is
+  # scripted (DASHBOARD_FAKE_MODEL=1), so this needs no gateway and no key.
+  browser:
+    name: Dashboard (browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Browser test (pytest e2e)
+        run: python -m pytest e2e -q

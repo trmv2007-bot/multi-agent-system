@@ -1,4 +1,4 @@
-.PHONY: install test run lint sast typecheck verify eval clean
+.PHONY: install test browser-test run lint sast typecheck verify eval clean
 
 # Default target
 all: install verify run
@@ -23,6 +23,12 @@ run-team:
 test:
 	pytest tests/ -v --cov=src --cov-report=term-missing
 
+# Browser test: the dashboard's real page in Chromium, on a scripted model, so
+# no key, gateway or network is needed. Install the browser once with
+# `python -m playwright install chromium`.
+browser-test:
+	python -m pytest e2e -q
+
 # Score the answers against the eval cases. No flag runs the credential-free
 # stub suite (what CI runs); `make eval ARGS=--live` runs the real cases
 # against the KeyPool gateway.
@@ -31,12 +37,12 @@ eval:
 
 # Lint
 lint:
-	ruff check src/ tests/ evals/
-	ruff format --check src/ tests/ evals/
+	ruff check src/ tests/ evals/ e2e/
+	ruff format --check src/ tests/ evals/ e2e/
 
 # Type check
 typecheck:
-	mypy src/ evals/
+	mypy src/ evals/ e2e/
 
 # SAST scan
 sast:

@@ -268,6 +268,7 @@ def _state_event(state: Any, mode: str) -> dict[str, Any]:
 async def _drive(run: Run) -> None:
     """Run one turn, streaming progress and recording the reply."""
     from src.config import get_llm
+    from src.dashboard.fake_model import scripted_enabled, scripted_llm
     from src.graph.agent import run_agent_stream
     from src.graph.build import run_build_stream
     from src.graph.research import run_research_stream
@@ -278,7 +279,7 @@ async def _drive(run: Run) -> None:
     collector = _BuildCollector(run)
     unsubscribe = activity.subscribe(collector.on_event)
     try:
-        llm = get_llm()
+        llm = scripted_llm() if scripted_enabled() else get_llm()
         # fresh=False: a follow-up continues the thread the workflow remembers.
         if run.mode == "agent":
             stream = run_agent_stream(run.query, run.thread_id, llm, fresh=False)
