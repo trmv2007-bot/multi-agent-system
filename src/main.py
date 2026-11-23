@@ -14,6 +14,7 @@ from src.graph.build import run_build, run_build_stream
 from src.graph.state import AgentState
 from src.graph.team import run_team, run_team_stream
 from src.graph.workflow import run_workflow, run_workflow_stream
+from src.observability import end_run, format_run_summary, start_run
 
 # Which settings field holds the model id for each provider.
 MODEL_FIELDS = {
@@ -163,6 +164,7 @@ async def main(
     options = options or RunOptions()
     thread_id = thread_id or settings.thread_id
     llm = get_llm()
+    start_run(f"{options.mode} · {query[:60]}")
 
     if options.cursor:
         activity.enable()
@@ -177,6 +179,7 @@ async def main(
     result = await _run(query, thread_id, llm, options)
 
     _print_report(result)
+    print(f"  Cost:              {format_run_summary(end_run())}")
     if options.cursor:
         activity.disable()
     return result

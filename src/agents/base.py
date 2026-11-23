@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from src.activity import ToolReport, activity
 from src.config import get_llm, router, settings
 from src.graph.state import AgentRole, AgentState
+from src.observability import record_model_call
 from src.structured import JSON_EXTRA_BODY, JSON_MAX_TOKENS, ModelSender
 
 TOOL_CALL_BLOCK = re.compile(r"<tool_call>(.*?)</tool_call>", re.S)
@@ -375,9 +376,12 @@ class BaseAgent(ABC):
         self._report("thinking", actor)
         for attempt in range(attempts):
             try:
+                provider = router.current_provider_name()
+                called_at = time.monotonic()
                 response = await llm.ainvoke(messages)
                 stop.set()
                 heartbeat.cancel()
+                record_model_call((actor or self._actor())[1], response, time.monotonic() - called_at, provider)
                 return response
             except Exception as e:
                 last_error = e
