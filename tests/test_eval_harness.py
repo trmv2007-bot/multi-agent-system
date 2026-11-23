@@ -7,7 +7,8 @@ from typing import Any
 
 from evals import harness
 from evals.harness import Case, CaseResult
-from evals.stub import run_stub_suite, selftest
+from evals.stub import GROUNDED, ScriptedModel, run_stub_suite, selftest
+from src.agents.verify import SUPPORTED
 from src.graph.state import AgentState
 
 
@@ -58,6 +59,28 @@ class TestScriptedSuite:
 
         assert "answer_excludes#1" in failed
         assert by_id["stub-fabrication-caught"].score < 1.0
+
+    async def test_a_sweep_keeps_a_partial_record_after_every_case(self):
+        cases = [
+            Case(
+                id=f"persist-{index}",
+                mode="pipeline",
+                question="q",
+                why="unit test",
+                checks={"answer_min_words": 1},
+            )
+            for index in range(2)
+        ]
+        seen: list[int] = []
+
+        await harness.evaluate(
+            cases,
+            lambda meter: ScriptedModel(SUPPORTED, GROUNDED, meter),
+            timeout=60.0,
+            after_each=lambda partial: seen.append(len(partial)),
+        )
+
+        assert seen == [1, 2]
 
     async def test_a_contradicted_run_abstains_and_is_graded_as_one(self):
         by_id = {item.id: item for item in await run_stub_suite()}

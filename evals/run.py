@@ -265,8 +265,17 @@ async def run_live(args: argparse.Namespace) -> int:
         f"Mode: live ({provider.name}, {provider.model})"
         f"  {len(cases)} cases  timeout {args.timeout:.0f}s\n"
     )
+    record = Path(args.json) if args.json else harness.LAST_FILE
+
+    def persist(partial: list[Any]) -> None:
+        """Keep the record current, so an interrupted sweep still leaves results."""
+        harness.write_payload(record, harness.report_payload(partial, "live", provider.model))
+
     results = await harness.evaluate(
-        cases, lambda meter: harness.live_model(llm, meter), timeout=args.timeout
+        cases,
+        lambda meter: harness.live_model(llm, meter),
+        timeout=args.timeout,
+        after_each=persist,
     )
     payload = harness.report_payload(results, "live", provider.model)
     print_table(results)
@@ -274,7 +283,6 @@ async def run_live(args: argparse.Namespace) -> int:
     summary = payload["summary"]
     print_summary(summary)
 
-    record = Path(args.json) if args.json else harness.LAST_FILE
     harness.write_payload(record, payload)
     print(f"\nRun record: {record}")
     if args.save_baseline:

@@ -227,16 +227,21 @@ async def evaluate(
     cases: Sequence[Case],
     make_model: Callable[[Meter], Any],
     timeout: float = CASE_TIMEOUT_SECONDS,
+    after_each: Callable[[list[CaseResult]], None] | None = None,
 ) -> list[CaseResult]:
     """Run every case in turn and grade it.
 
     Sequential on purpose: one case at a time keeps a pooled gateway readable
-    and makes each case's calls and tokens attributable to it.
+    and makes each case's calls and tokens attributable to it. ``after_each``
+    sees the results so far after each case, so a sweep cut short on a dropping
+    connection leaves a usable partial record instead of nothing.
     """
     results: list[CaseResult] = []
     for case in cases:
         meter = Meter()
         results.append(await run_case(case, make_model(meter), meter, timeout=timeout))
+        if after_each is not None:
+            after_each(results)
     return results
 
 
