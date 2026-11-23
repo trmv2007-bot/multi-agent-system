@@ -137,8 +137,9 @@ REFERENCE_HOSTS = frozenset(
 )
 """Compiled reference works: ranked above general pages, below official ones."""
 
-PRIMARY_HOST_PREFIXES = ("api.", "developer.", "developers.", "docs.", "learn.")
-PRIMARY_HOST_SUFFIXES = (".edu", ".gov", ".int", ".mil")
+PRIMARY_HOSTS = frozenset({"crates.io", "npmjs.com", "pypi.org"})
+PRIMARY_HOST_PREFIXES = ("api.", "developer.", "developers.", "docs.", "learn.", "reference.")
+PRIMARY_HOST_SUFFIXES = (".edu", ".gov", ".int", ".mil", ".readthedocs.io")
 PRIMARY_PATH_MARKERS = (
     "/api/",
     "/doc/",
@@ -278,7 +279,11 @@ def source_tier(url: str) -> int:
 
     if on_host or any(host.endswith(f".{farm}") for farm in AGGREGATOR_HOSTS):
         return TIER_AGGREGATOR
-    if host.endswith(PRIMARY_HOST_SUFFIXES) or host.startswith(PRIMARY_HOST_PREFIXES):
+    if (
+        host in PRIMARY_HOSTS
+        or host.endswith(PRIMARY_HOST_SUFFIXES)
+        or host.startswith(PRIMARY_HOST_PREFIXES)
+    ):
         return TIER_PRIMARY
     if host == "github.com" and ("/blob/" in path or "/tree/" in path):
         return TIER_PRIMARY

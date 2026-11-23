@@ -301,7 +301,12 @@ class TestRanking:
     def test_documentation_hosts_are_primary(self):
         assert source_tier("https://docs.python.org/3/library/asyncio.html") == TIER_PRIMARY
         assert source_tier("https://developer.mozilla.org/en-US/docs/Web/API") == TIER_PRIMARY
+        assert source_tier("https://reference.langchain.com/python/postgres") == TIER_PRIMARY
+        assert source_tier("https://langgraph.readthedocs.io/en/latest/") == TIER_PRIMARY
         assert source_tier("https://www.nist.gov/publications/report") == TIER_PRIMARY
+        assert (
+            source_tier("https://pypi.org/project/langgraph-checkpoint-postgres/") == TIER_PRIMARY
+        )
 
     def test_source_links_on_github_are_primary(self):
         assert source_tier("https://github.com/owner/repo/blob/main/src/x.py") == TIER_PRIMARY
