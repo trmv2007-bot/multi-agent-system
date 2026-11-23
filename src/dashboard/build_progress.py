@@ -14,6 +14,9 @@ a second event stream, and nothing here calls a model.
 from dataclasses import dataclass, field
 from typing import Any
 
+# Below this many seconds a rounded number would read as zero.
+DECIMAL_UNDER = 10
+
 PENDING = "pending"
 WRITING = "writing"
 DONE = "done"
@@ -87,7 +90,7 @@ class BuildProgress:
         self.seconds = seconds
         self.phase = "built"
         self.sections = max(self.sections, self.count)
-        self.status = f"built {_plural(self.sections, 'section')} in {round(seconds)}s"
+        self.status = f"built {_plural(self.sections, 'section')} in {clock(seconds)}"
 
     def stopped(self, seconds: float) -> None:
         """The build stopped early: say how far it got."""
@@ -158,3 +161,9 @@ class BuildProgress:
 
 def _plural(count: int, word: str) -> str:
     return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
+def clock(seconds: float) -> str:
+    """A duration a person reads: whole seconds once they matter, a decimal before."""
+    value = max(0.0, float(seconds))
+    return f"{round(value)}s" if value >= DECIMAL_UNDER else f"{value:.1f}s"

@@ -5,7 +5,7 @@ cover the transitions themselves, including the ones a scripted build is too
 fast to reach in a browser.
 """
 
-from src.dashboard.build_progress import DONE, PENDING, WRITING, BuildProgress
+from src.dashboard.build_progress import DONE, PENDING, WRITING, BuildProgress, clock
 
 
 def test_a_build_starts_by_saying_it_is_planning() -> None:
@@ -74,6 +74,23 @@ def test_a_finished_build_says_how_much_and_how_long() -> None:
     assert progress.status == "built 3 sections in 42s"
     assert progress.running is False
     assert progress.phase == "built"
+
+
+def test_a_short_build_is_never_reported_as_zero() -> None:
+    """A real build takes a while, but a fast one must not read as "in 0s"."""
+    progress = BuildProgress()
+    progress.saw_plan(["hero"])
+    progress.saw_section(0)
+    progress.built(0.34)
+
+    assert progress.status == "built 1 section in 0.3s"
+
+
+def test_a_long_build_reads_in_whole_seconds() -> None:
+    """Once seconds matter, the decimal is noise."""
+    assert clock(42.4) == "42s"
+    assert clock(9.96) == "10.0s"
+    assert clock(10.0) == "10s"
 
 
 def test_a_stopped_build_says_how_far_it_got() -> None:

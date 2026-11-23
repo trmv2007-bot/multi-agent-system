@@ -393,14 +393,15 @@
   .preview-stage.code .preview-frame { display: none; }
   .preview-stage.code .preview-code { display: block; }
   .preview-frame { flex: 1; width: 100%; border: 0; background: #0b0f16; opacity: .9; transition: opacity var(--med) var(--ease); }
-  .preview-stage { background: #070a10; }
+  .preview-stage { background: #070a10; position: relative; }
+  /* Only ever on an empty stage: a finished page must carry no overlay, not
+     even one fading out over it. */
   .preview-stage::after {
     content: "The page will build here";
-    position: absolute; inset: 0; display: grid; place-items: center;
+    position: absolute; inset: 0; display: none; place-items: center;
     font: 12px/1 var(--mono); color: var(--faint); pointer-events: none;
-    opacity: 0; transition: opacity var(--med) var(--ease);
   }
-  .preview-stage.empty::after { opacity: .7; }
+  .preview-stage.empty::after { display: grid; }
   .preview-frame.fresh { animation: fade var(--med) var(--ease) both; }
 
   /* composer */
@@ -1151,17 +1152,23 @@
     }
 
     $("build-elapsed").textContent =
-      build && !build.running && build.seconds ? Math.round(build.seconds) + "s" : "";
+      build && !build.running && build.seconds ? clock(build.seconds) : "";
     $("build-edit").disabled = !build || !build.document;
   }
 
-  // The elapsed number is what tells a person the build is still alive.
+  // The elapsed number is what tells a person the build is still alive: whole
+  // seconds once they matter, a decimal before, so it never reads as a stuck 0.
+  function clock(seconds) {
+    const value = Math.max(0, seconds);
+    return value >= 10 ? Math.round(value) + "s" : value.toFixed(1) + "s";
+  }
+
   function tickBuild() {
     const build = activeBuildRow();
     if (!build || !build.running) return;
     const started = buildStarted.get(build.id);
     if (!started) return;
-    $("build-elapsed").textContent = Math.round((Date.now() - started) / 1000) + "s";
+    $("build-elapsed").textContent = clock((Date.now() - started) / 1000);
   }
 
   setInterval(tickBuild, 500);

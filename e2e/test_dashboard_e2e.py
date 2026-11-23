@@ -29,7 +29,10 @@ ANSWER_FRAGMENT = "the words are not researched"
 COST_LINE = re.compile(r"^\d+ calls? · [\d.]+k? tokens · \d+s")
 STARTUP_SECONDS = 30
 TURN_SECONDS = 60_000
-BUILT_LINE = re.compile(r"^built (\d+) sections? in (\d+)s$")
+BUILT_LINE = re.compile(r"^built (\d+) sections? in (\d+(?:\.\d)?)s$")
+ELAPSED_LINE = re.compile(r"^\d+(?:\.\d)?s$")
+# What the planner's skeleton looks like: it must never be what a finished tab holds.
+PLACEHOLDER_MARKERS = ("Writing…", 'class="eyebrow"', "opacity:.45")
 SECTION_PHASE = re.compile(r"^(?:writing|fixing) section (\d+) of (\d+)$")
 CARRIED_SECTIONS = "The page currently has these sections"
 # The scripted planner always writes the same three sections.
@@ -293,7 +296,7 @@ def test_build_reports_progress_a_person_can_read(
     assert built, statuses[-1]
     assert int(built.group(1)) == total
     expect(page.locator("#preview-state")).to_have_attribute("data-state", "built")
-    expect(page.locator("#build-elapsed")).to_have_text(re.compile(r"^\d+s$"))
+    expect(page.locator("#build-elapsed")).to_have_text(ELAPSED_LINE)
     assert problems == []
 
 
@@ -318,6 +321,9 @@ def test_a_second_build_opens_its_own_tab(
     expect(tabs.nth(0)).to_have_attribute("aria-selected", "false")
     second_document = page.locator("#preview-code").text_content()
     assert second_document and second_document != first_document
+    for document in (first_document, second_document):
+        for marker in PLACEHOLDER_MARKERS:
+            assert marker not in document, marker
 
     # Switching back is instant and shows exactly what the first build left.
     tabs.nth(0).click()
