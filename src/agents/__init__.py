@@ -7,7 +7,20 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
-from src.agents.base import VERIFIED_CONFIDENCE, AgentConfig, BaseAgent
+from src.agents.base import AgentConfig, BaseAgent
+from src.agents.verify import (
+    CONFIDENCE_BY_VERDICT,
+    CONTRADICTED,
+    SEVERITY_BY_VERDICT,
+    STATUS_BY_VERDICT,
+    UNSUPPORTED,
+    VERDICT_EXTRA_BODY,
+    VERDICT_MAX_TOKENS,
+    claim_key,
+    parse_verdicts,
+    verdicts_of,
+    verification_prompt,
+)
 from src.config import get_tracer
 from src.graph.state import AgentRole, AgentState
 
@@ -55,8 +68,13 @@ Output format: Return findings as a list of objects with:
                 {
                     "source": run["name"],
                     "content": run["output"][:1000],
+                    # What the source actually returned. Without it the
+                    # validator can only see the tool's name, which says
+                    # nothing about whether the claim is true.
+                    "source_content": run["output"][:6000],
                     "confidence": 0.9,
                     "relevance": 0.8,
+                    "turn": state.turn,
                 }
                 for run in tool_runs
             ]
@@ -65,8 +83,12 @@ Output format: Return findings as a list of objects with:
                     {
                         "source": "llm_synthesis",
                         "content": answer,
+                        # The synthesis has no source of its own: it is
+                        # checkable only against everything the tools returned.
+                        "source_content": "\n\n".join(run["output"] for run in tool_runs)[:6000],
                         "confidence": 0.7,
                         "relevance": 0.9,
+                        "turn": state.turn,
                     }
                 )
 
@@ -94,14 +116,13 @@ Guidelines:
 1. Synthesize information from multiple sources
 2. Identify patterns, trends, and contradictions
 3. Provide structured analysis with clear reasoning
-4. Rate confidence in your conclusions
+4. Say which findings each conclusion rests on
 5. Highlight areas needing further research
 
 Output format: Return analysis as objects with:
 - topic: what was analyzed
 - insight: key insight or conclusion
 - evidence: supporting evidence from findings
-- confidence: confidence level (0-1)
 - implications: what this means""",
             tools=tools or [],
         )
@@ -120,8 +141,8 @@ Output format: Return analysis as objects with:
                             "topic": "No findings to analyze",
                             "insight": "No research findings available for analysis",
                             "evidence": [],
-                            "confidence": 0.0,
                             "implications": "Research phase must complete first",
+                            "turn": state.turn,
                             "timestamp": datetime.now(UTC).isoformat(),
                         }
                     ],
@@ -149,8 +170,8 @@ Output format: Return analysis as objects with:
                     "topic": state.current_task or "General analysis",
                     "insight": response.content,
                     "evidence": [f["source"] for f in state.research_findings],
-                    "confidence": 0.8,
                     "implications": "See detailed analysis above",
+                    "turn": state.turn,
                 }
             ]
 
@@ -194,14 +215,49 @@ web page into the answer — describe it in one line instead.""",
 
             start = time.time()
 
-            # Build context from all previous work
+            # The validator's grade decides what the writer may treat as fact:
+            # contradicted findings never reach the model, unsupported ones
+            # reach it labelled.
+            verdicts = verdicts_of(state.validation_results, state.turn)
+            kept: list[dict[str, Any]] = []
+            unverified: list[dict[str, Any]] = []
+            dropped = 0
+            for finding in state.research_findings:
+                verdict = verdicts.get(claim_key(finding), "")
+                if verdict == CONTRADICTED:
+                    dropped += 1
+                    continue
+                kept.append(finding)
+                if verdict == UNSUPPORTED:
+                    unverified.append(finding)
+            unverified_keys = {claim_key(finding) for finding in unverified}
+
             findings_str = "\n".join(
-                [f"- [{f['source']}] {f['content'][:200]}" for f in state.research_findings]
+                f"- [{finding['source']}] {finding['content'][:200]}"
+                + (
+                    "  (UNVERIFIED: no fetched source supports this)"
+                    if claim_key(finding) in unverified_keys
+                    else ""
+                )
+                for finding in kept
             )
 
-            analysis_str = "\n".join([f"- {a['insight'][:200]}" for a in state.analysis_results])
+            kept_analysis = [
+                analysis
+                for analysis in state.analysis_results
+                if verdicts.get(claim_key(analysis), "") != CONTRADICTED
+            ]
+            dropped += len(state.analysis_results) - len(kept_analysis)
+            analysis_str = "\n".join(f"- {a['insight'][:200]}" for a in kept_analysis)
 
-            messages = self._build_messages(state)
+            dropped_note = (
+                f"\n\n{dropped} claim(s) were removed because their sources contradict them. "
+                "Do not restate them or invent replacements for them."
+                if dropped
+                else ""
+            )
+
+            messages = self._build_messages(state, findings=kept)
             messages.append(
                 {
                     "role": "user",
@@ -211,7 +267,9 @@ RESEARCH FINDINGS:
 {findings_str}
 
 ANALYSIS:
-{analysis_str}
+{analysis_str}{dropped_note}
+
+Treat anything labelled UNVERIFIED as unconfirmed rather than fact.
 
 Original query: {state.current_task or state.messages[0]["content"] if state.messages else "Unknown"}""",
                 }
@@ -219,20 +277,42 @@ Original query: {state.current_task or state.messages[0]["content"] if state.mes
 
             response = await self._ainvoke(messages)
 
+            report = self._text_of(response).rstrip()
+            note = self._unverified_note(unverified, dropped)
+            if note:
+                report = f"{report}\n\n{note}"
+
             return {
-                "final_report": response.content,
+                "final_report": report,
                 "agent_timings": {self.config.role.value: time.time() - start},
                 "messages": [self._message("Report generated")],
             }
 
+    @staticmethod
+    def _unverified_note(unverified: list[dict[str, Any]], dropped: int) -> str:
+        """The provenance footer naming what the sources could not support."""
+        lines: list[str] = []
+        if unverified:
+            lines.append("Unverified (no fetched source supports these):")
+            lines.extend(
+                f"- {claim_key(finding)[:120]} (from {finding.get('source', 'unknown')})"
+                for finding in unverified[:5]
+            )
+        if dropped:
+            lines.append(f"Removed {dropped} claim(s) that their sources contradicted.")
+        return "\n".join(lines)
+
 
 class ValidatorAgent(BaseAgent):
     """
-    Agent specialized in validation and fact-checking.
+    Grades claims against the source text fetched for them.
 
-    ``scope`` selects what this instance checks: ``findings`` runs in parallel
-    with the analyst, ``analysis`` has to run after it, and ``all`` does both
-    for direct callers.
+    One model call per pass, built by
+    :func:`src.agents.verify.verification_prompt`. ``scope`` selects the pass:
+    ``findings`` runs in parallel with the analyst and grades the research
+    findings against their fetched sources, ``analysis`` runs after it and grades
+    the analyst's insights against the findings, and ``all`` does both for direct
+    callers.
     """
 
     def __init__(
@@ -247,22 +327,17 @@ class ValidatorAgent(BaseAgent):
         config = AgentConfig(
             role=AgentRole.VALIDATOR,
             name="Validator",
-            description="Validates findings and checks for hallucinations",
-            system_prompt="""You are a Validation Agent. Your job is to verify the accuracy of research findings and analysis.
+            description="Grades claims against the source text fetched for them",
+            system_prompt="""You verify claims against source text.
 
-Guidelines:
-1. Check claims against known facts
-2. Identify potential hallucinations or fabrications
-3. Verify sources are credible
-4. Flag unsupported claims
-5. Rate overall reliability
+Rules:
+1. Only the source text supplied with a claim counts as evidence
+2. Mark a claim supported only when that source states it
+3. Mark it contradicted when the source says something incompatible with it
+4. Mark it unsupported when the source is silent, off-topic or absent
+5. Never use your own knowledge to fill a gap in the source
 
-Output format: Return validation results as objects with:
-- claim: the claim being validated
-- status: verified / unverified / contradicted / hallucinated
-- evidence: supporting or contradicting evidence
-- confidence: confidence in validation (0-1)
-- severity: low / medium / high / critical""",
+Output: JSON only, one entry per claim, no prose.""",
             tools=tools or [],
         )
         super().__init__(config, llm)
@@ -275,9 +350,9 @@ Output format: Return validation results as objects with:
 
             validations: list[dict[str, Any]] = []
             if self.scope in ("findings", "all"):
-                validations.extend(self._validate_findings(state.research_findings))
+                validations.extend(await self._validate_findings(state))
             if self.scope in ("analysis", "all"):
-                validations.extend(self._validate_analysis(state.analysis_results))
+                validations.extend(await self._validate_analysis(state))
 
             stamp = datetime.now(UTC).isoformat()
             for validation in validations:
@@ -289,56 +364,124 @@ Output format: Return validation results as objects with:
                 "messages": [self._message(f"Validation completed: {len(validations)} checks")],
             }
 
-    @staticmethod
-    def _validate_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Check research findings for hallucination markers and unsourced claims."""
-        hallucination_indicators = [
-            "according to my knowledge cutoff",
-            "as an ai language model",
-            "i cannot access",
-            "i don't have access",
+    async def _validate_findings(self, state: AgentState) -> list[dict[str, Any]]:
+        """Grade this turn's findings against the text their sources returned."""
+        findings = [finding for finding in state.research_findings if _in_turn(finding, state.turn)]
+        if not findings:
+            return []
+
+        claims = [
+            {
+                "claim": str(finding.get("content", "")),
+                "source": str(finding.get("source", "unknown")),
+                "source_content": str(finding.get("source_content", "")),
+            }
+            for finding in findings
+        ]
+        slots = await self._grade(claims)
+
+        return [
+            _validation_record(
+                claim=claim_key(finding),
+                slot=slot,
+                evidence=[str(finding.get("source", "unknown"))],
+                scope="findings",
+                turn=state.turn,
+            )
+            for finding, slot in zip(findings, slots, strict=True)
         ]
 
-        validations = []
-        for finding in findings:
-            content = finding.get("content", "")
-            source = finding.get("source", "")
+    async def _validate_analysis(self, state: AgentState) -> list[dict[str, Any]]:
+        """Grade this turn's insights against the findings they rest on."""
+        analyses = [
+            analysis for analysis in state.analysis_results if _in_turn(analysis, state.turn)
+        ]
+        if not analyses:
+            return []
 
-            if any(indicator in content.lower() for indicator in hallucination_indicators):
-                status, severity = "hallucinated", "high"
-            elif source in ("llm_synthesis", "unknown"):
-                status, severity = "unverified", "medium"
-            else:
-                status, severity = "verified", "low"
-
-            validations.append(
-                {
-                    "claim": content[:200],
-                    "status": status,
-                    "evidence": [source],
-                    "confidence": 0.8 if status == "verified" else 0.4,
-                    "severity": severity,
-                }
-            )
-        return validations
-
-    @staticmethod
-    def _validate_analysis(analyses: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Check that each analysis insight carries its supporting confidence."""
-        return [
+        evidence = "\n".join(
+            f"[{finding.get('source', 'unknown')}] {str(finding.get('content', ''))[:500]}"
+            for finding in state.research_findings
+        )
+        claims = [
             {
-                "claim": analysis.get("insight", "")[:200],
-                "status": (
-                    "verified"
-                    if analysis.get("confidence", 0) > VERIFIED_CONFIDENCE
-                    else "unverified"
-                ),
-                "evidence": analysis.get("evidence", []),
-                "confidence": analysis.get("confidence", 0.5),
-                "severity": "low",
+                "claim": str(analysis.get("insight", "")),
+                "source": "research findings",
+                "source_content": evidence,
             }
             for analysis in analyses
         ]
+        slots = await self._grade(claims)
+
+        return [
+            _validation_record(
+                claim=claim_key(analysis),
+                slot=slot,
+                evidence=list(analysis.get("evidence") or []),
+                scope="analysis",
+                turn=state.turn,
+            )
+            for analysis, slot in zip(analyses, slots, strict=True)
+        ]
+
+    async def _grade(self, claims: list[dict[str, Any]]) -> list[dict[str, str] | None]:
+        """Ask the model for one verdict per claim.
+
+        A call that fails, or a reply the parser cannot read, grades nothing as
+        supported: every slot comes back ``None`` and the caller records those
+        claims as unverified.
+        """
+        messages = [
+            {"role": "system", "content": self.config.system_prompt},
+            {"role": "user", "content": verification_prompt(claims)},
+        ]
+        try:
+            response = await self._ainvoke(
+                messages,
+                actor=self._actor(),
+                max_tokens=VERDICT_MAX_TOKENS,
+                extra_body=VERDICT_EXTRA_BODY,
+            )
+        except Exception:
+            self._report("verification unavailable", self._actor())
+            return [None] * len(claims)
+        return parse_verdicts(self._text_of(response), len(claims))
+
+
+def _in_turn(item: dict[str, Any], turn: str) -> bool:
+    """Whether an item belongs to the turn being validated.
+
+    Items written before turns existed carry none and are graded anyway.
+    """
+    item_turn = item.get("turn")
+    return not item_turn or item_turn == turn
+
+
+def _validation_record(
+    claim: str,
+    slot: dict[str, str] | None,
+    evidence: list[str],
+    scope: str,
+    turn: str,
+) -> dict[str, Any]:
+    """Turn one verdict into the record the writer and the graph read."""
+    if slot is None:
+        # An empty or unreadable reply is a failed check, never a pass.
+        verdict, reason = UNSUPPORTED, "the verifier returned no verdict for this claim"
+    else:
+        verdict, reason = slot["verdict"], slot["reason"]
+
+    return {
+        "claim": claim,
+        "verdict": verdict,
+        "status": STATUS_BY_VERDICT[verdict],
+        "reason": reason or "no reason given",
+        "evidence": evidence,
+        "confidence": CONFIDENCE_BY_VERDICT[verdict],
+        "severity": SEVERITY_BY_VERDICT[verdict],
+        "scope": scope,
+        "turn": turn,
+    }
 
 
 class OrchestratorAgent(BaseAgent):

@@ -17,9 +17,6 @@ from src.activity import ToolReport, activity
 from src.config import get_llm, router, settings
 from src.graph.state import AgentRole, AgentState
 
-VERIFIED_CONFIDENCE = 0.7
-"""Minimum analysis confidence for a claim to count as verified."""
-
 TOOL_CALL_BLOCK = re.compile(r"<tool_call>(.*?)</tool_call>", re.S)
 TOOL_CALL_FUNCTION = re.compile(r"<function=([\w.\-]+)>(.*?)</function>", re.S)
 TOOL_CALL_PARAM = re.compile(r"<parameter=([\w_]+)>(.*?)</parameter>", re.S)
@@ -334,15 +331,28 @@ class BaseAgent(ABC):
         )
         return result
 
-    def _client(self, with_tools: bool = False) -> Any:
-        """The model client to call, optionally bound to the agent's tools."""
-        return self.llm.bind_tools(self.tools) if with_tools and self.tools else self.llm
+    def _client(
+        self,
+        with_tools: bool = False,
+        max_tokens: int | None = None,
+        extra_body: dict[str, object] | None = None,
+    ) -> Any:
+        """The model client to call, bound to tools, a token budget, and body fields."""
+        client = self.llm.bind_tools(self.tools) if with_tools and self.tools else self.llm
+        options: dict[str, object] = {}
+        if max_tokens:
+            options["max_tokens"] = max_tokens
+        if extra_body:
+            options["extra_body"] = extra_body
+        return client.bind(**options) if options else client
 
     async def _ainvoke(
         self,
         messages: list[dict[str, Any]],
         with_tools: bool = False,
         actor: tuple[str, str] | None = None,
+        max_tokens: int | None = None,
+        extra_body: dict[str, object] | None = None,
     ) -> Any:
         """
         Call the model, retrying with exponential backoff and failing over.
@@ -355,7 +365,7 @@ class BaseAgent(ABC):
         started = time.time()
         heartbeat = asyncio.create_task(self._heartbeat(actor, started, stop))
 
-        llm = self._client(with_tools)
+        llm = self._client(with_tools, max_tokens, extra_body)
         chain = router.provider_names() or ["default"]
         attempts = max(3, settings.max_fallback_retries)
         last_error: Exception | None = None
@@ -395,7 +405,7 @@ class BaseAgent(ABC):
                     )
 
                 self.llm = router.next_provider()
-                llm = self._client(with_tools)
+                llm = self._client(with_tools, max_tokens, extra_body)
 
         assert last_error is not None
         stop.set()
@@ -416,19 +426,28 @@ class BaseAgent(ABC):
         }
 
     def _build_messages(
-        self, state: AgentState, additional_context: str = ""
+        self,
+        state: AgentState,
+        additional_context: str = "",
+        findings: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """Build messages for LLM call."""
+        """
+        Build messages for LLM call.
+
+        ``findings`` lets a caller show only the findings it stands behind: the
+        writer passes the ones the validator did not contradict, so a bad claim
+        never reaches the model as fact.
+        """
         messages = [
             {"role": "system", "content": self.config.system_prompt},
         ]
 
-        # Add relevant context from state
-        if state.research_findings:
+        visible = state.research_findings if findings is None else findings
+        if visible:
             findings_str = "\n".join(
                 [
                     f"- {f.get('source', 'unknown')}: {f.get('content', '')[:500]}"
-                    for f in state.research_findings[-10:]
+                    for f in visible[-10:]
                 ]
             )
             messages.append({"role": "system", "content": f"RESEARCH FINDINGS:\n{findings_str}"})
