@@ -1,5 +1,6 @@
 """Specialized agents for the research, analysis, validation and writing pipeline."""
 
+import logging
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -14,15 +15,16 @@ from src.agents.verify import (
     SEVERITY_BY_VERDICT,
     STATUS_BY_VERDICT,
     UNSUPPORTED,
-    VERDICT_EXTRA_BODY,
-    VERDICT_MAX_TOKENS,
     claim_key,
-    parse_verdicts,
+    verdicts_from,
     verdicts_of,
     verification_prompt,
 )
 from src.config import get_tracer
 from src.graph.state import AgentRole, AgentState
+from src.structured import call_json
+
+logger = logging.getLogger(__name__)
 
 
 class ResearcherAgent(BaseAgent):
@@ -427,25 +429,26 @@ Output: JSON only, one entry per claim, no prose.""",
     async def _grade(self, claims: list[dict[str, Any]]) -> list[dict[str, str] | None]:
         """Ask the model for one verdict per claim.
 
-        A call that fails, or a reply the parser cannot read, grades nothing as
-        supported: every slot comes back ``None`` and the caller records those
-        claims as unverified.
+        A call that fails, or a reply the reader cannot make sense of even after
+        a repair and a retry, grades nothing as supported: every slot comes back
+        ``None`` and the caller records those claims as unverified.
         """
         messages = [
             {"role": "system", "content": self.config.system_prompt},
             {"role": "user", "content": verification_prompt(claims)},
         ]
         try:
-            response = await self._ainvoke(
+            payload = await call_json(
+                self._json_sender(self._actor()),
                 messages,
-                actor=self._actor(),
-                max_tokens=VERDICT_MAX_TOKENS,
-                extra_body=VERDICT_EXTRA_BODY,
+                site="verify.grade",
+                expect=(list, dict),
             )
-        except Exception:
+        except Exception as error:
+            logger.warning("verification unavailable, grading nothing as supported: %s", error)
             self._report("verification unavailable", self._actor())
             return [None] * len(claims)
-        return parse_verdicts(self._text_of(response), len(claims))
+        return verdicts_from([payload], len(claims))
 
 
 def _in_turn(item: dict[str, Any], turn: str) -> bool:

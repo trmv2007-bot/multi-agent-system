@@ -157,6 +157,18 @@ def record_histogram(name: str, value: float, attributes: dict[str, Any] | None 
     metrics.get_meter(__name__).create_histogram(name).record(value, attributes or {})
 
 
+def structured_output_stats() -> dict[str, int]:
+    """How model JSON replies have gone since this process started.
+
+    Repairs and retries climbing means the provider pool is mangling output;
+    ``empty`` climbing with ``calls`` means it is burning the budget on reasoning
+    again. Either way the run stayed up, so nothing else would have said so.
+    """
+    from src.structured import STRUCTURED
+
+    return STRUCTURED.snapshot()
+
+
 def trace_agent(agent_name: str) -> Callable[..., Any]:
     """Decorator to trace agent execution."""
 

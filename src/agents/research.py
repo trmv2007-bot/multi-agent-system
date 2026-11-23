@@ -5,7 +5,7 @@ at the same time, a gap analyst asks what is still missing, a second wave closes
 those gaps, and a report agent writes the answer with its sources.
 """
 
-import json
+import logging
 import re
 import time
 from typing import Any
@@ -14,6 +14,9 @@ from langchain_core.language_models import BaseChatModel
 
 from src.agents.base import AgentConfig, BaseAgent
 from src.graph.state import AgentRole, AgentState
+from src.structured import StructuredOutputError, call_json
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_QUESTIONS = 4
 DEEP_QUESTIONS = 10
@@ -75,17 +78,9 @@ Rules:
 - Never paste HTML or code; this is a spoken-style answer."""
 
 
-def parse_questions(text: str, limit: int) -> list[dict[str, str]]:
-    """Read a JSON list of questions out of a model reply."""
-    match = re.search(r"\[.*\]", text, re.S)
-    items: list[Any] = []
-    if match:
-        try:
-            parsed = json.loads(match.group(0))
-            if isinstance(parsed, list):
-                items = parsed
-        except json.JSONDecodeError:
-            items = []
+def questions_from(payload: Any, limit: int) -> list[dict[str, str]]:
+    """Shape a parsed planner or gap reply into the questions worth asking."""
+    items = payload if isinstance(payload, list) else []
 
     questions: list[dict[str, str]] = []
     for item in items:
@@ -138,15 +133,21 @@ class QuestionPlannerAgent(BaseAgent):
 
     async def execute(self, state: AgentState) -> dict[str, Any]:
         start = time.time()
-        response = await self._ainvoke(
-            [
-                {"role": "system", "content": self.config.system_prompt},
-                {"role": "user", "content": f"Task: {state.current_task}"},
-            ]
-        )
-        questions = parse_questions(str(response.content), self.max_questions)
-        if not questions:
-            questions = [{"question": state.current_task, "why": "the task itself"}]
+        questions = [{"question": state.current_task, "why": "the task itself"}]
+        try:
+            payload = await call_json(
+                self._json_sender(self._actor()),
+                [
+                    {"role": "system", "content": self.config.system_prompt},
+                    {"role": "user", "content": f"Task: {state.current_task}"},
+                ],
+                site="research.planner",
+                expect=list,
+            )
+        except StructuredOutputError as error:
+            logger.warning("research planner fell back to the task itself: %s", error)
+        else:
+            questions = questions_from(payload, self.max_questions) or questions
 
         plan = [
             {"id": index, "section": item["question"], "brief": item["why"], "wave": 1}
@@ -250,16 +251,24 @@ class GapAnalystAgent(BaseAgent):
             for item in state.research_findings
             if item.get("turn") == state.turn
         )
-        response = await self._ainvoke(
-            [
-                {"role": "system", "content": self.config.system_prompt},
-                {
-                    "role": "user",
-                    "content": f"Task: {state.current_task}\n\nEstablished:\n{covered}",
-                },
-            ]
-        )
-        gaps = parse_questions(str(response.content), self.max_follow_ups)
+        gaps: list[dict[str, str]] = []
+        try:
+            payload = await call_json(
+                self._json_sender(self._actor()),
+                [
+                    {"role": "system", "content": self.config.system_prompt},
+                    {
+                        "role": "user",
+                        "content": f"Task: {state.current_task}\n\nEstablished:\n{covered}",
+                    },
+                ],
+                site="research.gap_analyst",
+                expect=list,
+            )
+        except StructuredOutputError as error:
+            logger.warning("gap analyst added no follow-ups: %s", error)
+        else:
+            gaps = questions_from(payload, self.max_follow_ups)
 
         existing = {item.get("question", "") for item in state.research_findings}
         gaps = [gap for gap in gaps if gap["question"] not in existing]

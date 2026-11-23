@@ -1,7 +1,6 @@
 """Planner, worker and synthesizer agents that make up team mode."""
 
-import json
-import re
+import logging
 import time
 from typing import Any
 
@@ -10,6 +9,9 @@ from langchain_core.tools import BaseTool
 
 from src.agents import AgentConfig, BaseAgent
 from src.graph.state import AgentRole, AgentState
+from src.structured import StructuredOutputError, call_json, parse_json
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_SUBTASKS = 4
 MAX_SUBTASKS = 20
@@ -58,17 +60,9 @@ Rules:
   in one line what you built and stop; the page itself goes in the build box."""
 
 
-def parse_plan(text: str, fallback: str, limit: int) -> list[dict[str, Any]]:
-    """Parse the orchestrator's JSON plan, falling back to a single task."""
-    match = re.search(r"\[.*\]", text, re.S)
-    items: list[Any] = []
-    if match:
-        try:
-            parsed = json.loads(match.group(0))
-            if isinstance(parsed, list):
-                items = parsed
-        except json.JSONDecodeError:
-            items = []
+def plan_from(payload: Any, fallback: str, limit: int) -> list[dict[str, Any]]:
+    """Shape a parsed orchestrator reply into a plan, falling back to one task."""
+    items = payload if isinstance(payload, list) else []
 
     plan: list[dict[str, Any]] = []
     for item in items:
@@ -96,6 +90,11 @@ def parse_plan(text: str, fallback: str, limit: int) -> list[dict[str, Any]]:
     return plan or [{"id": 0, "task": fallback, "tools": []}]
 
 
+def parse_plan(text: str, fallback: str, limit: int) -> list[dict[str, Any]]:
+    """Read the orchestrator's JSON plan out of a model reply."""
+    return plan_from(parse_json(text, expect=list), fallback, limit)
+
+
 class PlannerAgent(BaseAgent):
     """Splits the task into parallel subtasks."""
 
@@ -115,13 +114,21 @@ class PlannerAgent(BaseAgent):
 
     async def execute(self, state: AgentState) -> dict[str, Any]:
         start = time.time()
-        response = await self._ainvoke(
-            [
-                {"role": "system", "content": self.config.system_prompt},
-                {"role": "user", "content": f"Task: {state.current_task}"},
-            ]
-        )
-        plan = parse_plan(str(response.content), state.current_task, self.max_subtasks)
+        plan: list[dict[str, Any]] = [{"id": 0, "task": state.current_task, "tools": []}]
+        try:
+            payload = await call_json(
+                self._json_sender(self._actor()),
+                [
+                    {"role": "system", "content": self.config.system_prompt},
+                    {"role": "user", "content": f"Task: {state.current_task}"},
+                ],
+                site="team.planner",
+                expect=list,
+            )
+        except StructuredOutputError as error:
+            logger.warning("team planner fell back to the task itself: %s", error)
+        else:
+            plan = plan_from(payload, state.current_task, self.max_subtasks)
 
         return {
             "plan": plan,

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from src.activity import ToolReport, activity
 from src.config import get_llm, router, settings
 from src.graph.state import AgentRole, AgentState
+from src.structured import JSON_EXTRA_BODY, JSON_MAX_TOKENS, ModelSender
 
 TOOL_CALL_BLOCK = re.compile(r"<tool_call>(.*?)</tool_call>", re.S)
 TOOL_CALL_FUNCTION = re.compile(r"<function=([\w.\-]+)>(.*?)</function>", re.S)
@@ -415,6 +416,25 @@ class BaseAgent(ABC):
             f"{self.config.name} could not reach a model after {attempts} attempts "
             f"({tried}): {_describe(last_error)}"
         ) from last_error
+
+    def _json_sender(self, actor: tuple[str, str] | None = None) -> ModelSender:
+        """
+        A model caller tuned for a JSON reply, keeping the gateway's own retry.
+
+        :mod:`src.structured` owns the parse, the repair and the retry with a
+        blunter instruction; this owns the call, so a pooled 429 still walks the
+        provider chain instead of surfacing as a malformed reply.
+        """
+
+        async def send(messages: list[dict[str, Any]]) -> Any:
+            return await self._ainvoke(
+                messages,
+                actor=actor,
+                max_tokens=JSON_MAX_TOKENS,
+                extra_body=JSON_EXTRA_BODY,
+            )
+
+        return send
 
     def _message(self, content: str) -> dict[str, Any]:
         """Build an assistant message attributed to this agent."""

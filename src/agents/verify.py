@@ -3,15 +3,15 @@
 The validator makes one model call per pass: every claim in the pass goes out in
 a single prompt, with the material its source produced, and comes back as a
 verdict (``supported`` / ``unsupported`` / ``contradicted``). This module holds
-the prompt, the tolerant parser and the vocabulary the writer and the graph read
-that grade with; the model call itself lives in
-:class:`src.agents.ValidatorAgent`.
+the prompt, the verdict reader over the shared JSON repair path, and the
+vocabulary the writer and the graph read that grade with; the model call itself
+lives in :class:`src.agents.ValidatorAgent`.
 """
 
-import json
-import re
-from collections.abc import Iterator
+from collections.abc import Iterable
 from typing import Any
+
+from src.structured import json_payloads
 
 SUPPORTED = "supported"
 UNSUPPORTED = "unsupported"
@@ -62,12 +62,6 @@ SOURCE_CHARS = 1800
 CLAIM_CHARS = 500
 """How much of one claim goes into the verdict prompt."""
 
-_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
-_OBJECT = re.compile(r"\{[^{}]*\}", re.S)
-_LOOSE_INDEX = re.compile(r'"?index"?\s*[:=]\s*(\d+)')
-_LOOSE_VERDICT = re.compile(r'"?verdict"?\s*[:=]\s*"?(\w+)')
-_LOOSE_REASON = re.compile(r'"?reason"?\s*[:=]\s*(.+)', re.S)
-
 
 def claim_key(item: dict[str, Any]) -> str:
     """The text a verdict is matched back to its finding by.
@@ -110,20 +104,29 @@ def parse_verdicts(reply: str, count: int) -> list[dict[str, str] | None]:
 
     An empty reply, a reply that is not JSON, or a missing entry leaves that
     slot ``None``. The caller records ``None`` as unverified: a reply the parser
-    could not read is never agreement.
+    could not read is never agreement. The reading itself is the shared repair
+    path, so a verdict that is only legible once its dropped quotes are put back
+    still counts.
     """
+    return verdicts_from(json_payloads(reply or ""), count)
+
+
+def verdicts_from(payloads: Iterable[Any], count: int) -> list[dict[str, str] | None]:
+    """Match parsed payloads to claims, newest reading that covers one winning."""
     if count <= 0:
         return []
 
-    for payload in _payload_candidates(reply or ""):
-        slots = _read_payload(payload, count)
+    for payload in payloads:
+        items: Any = payload
+        if isinstance(items, dict):
+            wrapped = items.get("verdicts") or items.get("results")
+            items = wrapped if isinstance(wrapped, list) else [items]
+        if not isinstance(items, list):
+            continue
+        slots = _read_payload(items, count)
         if any(slot is not None for slot in slots):
             return slots
-
-    # Models in the pool occasionally drop quotes around a value, which is not
-    # JSON but is still a readable verdict.
-    slots = _read_payload(_loose_payload(reply or ""), count)
-    return slots if any(slot is not None for slot in slots) else [None] * count
+    return [None] * count
 
 
 def verdicts_of(
@@ -176,58 +179,3 @@ def _read_payload(payload: list[Any], count: int) -> list[dict[str, str] | None]
             "reason": str(item.get("reason", "")).strip()[:300],
         }
     return slots
-
-
-def _loose_payload(text: str) -> list[dict[str, str]]:
-    """Read verdict entries out of JSON a model wrote slightly wrong."""
-    entries: list[dict[str, str]] = []
-    for chunk in _OBJECT.findall(text):
-        verdict = _LOOSE_VERDICT.search(chunk)
-        if verdict is None:
-            continue
-        entry = {"verdict": verdict.group(1)}
-        index = _LOOSE_INDEX.search(chunk)
-        if index is not None:
-            entry["index"] = index.group(1)
-        reason = _LOOSE_REASON.search(chunk)
-        if reason is not None:
-            entry["reason"] = reason.group(1).rstrip().rstrip("}").strip().strip('"')
-        entries.append(entry)
-    return entries
-
-
-def _payload_candidates(text: str) -> Iterator[list[Any]]:
-    """Every JSON list the reply could be hiding, fenced blocks and prose included."""
-    seen: set[str] = set()
-    fenced = _FENCE.search(text)
-    sources = [fenced.group(1).strip(), text] if fenced else [text]
-    for source in sources:
-        for chunk in _containers(source):
-            if chunk in seen:
-                continue
-            seen.add(chunk)
-            try:
-                data = json.loads(chunk)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(data, dict):
-                wrapped = data.get("verdicts") or data.get("results")
-                data = wrapped if isinstance(wrapped, list) else [data]
-            if isinstance(data, list):
-                yield data
-
-
-def _containers(text: str) -> Iterator[str]:
-    """Top-level balanced ``[...]`` then ``{...}`` chunks, in the order they appear."""
-    for opener, closer in (("[", "]"), ("{", "}")):
-        depth = 0
-        start = -1
-        for index, char in enumerate(text):
-            if char == opener:
-                if depth == 0:
-                    start = index
-                depth += 1
-            elif char == closer and depth:
-                depth -= 1
-                if depth == 0 and start != -1:
-                    yield text[start : index + 1]

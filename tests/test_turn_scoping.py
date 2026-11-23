@@ -50,6 +50,7 @@ class TestTeamTurnScoping:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm, prompts
 
     @pytest.mark.asyncio
@@ -102,6 +103,7 @@ class TestPipelineTurnScoping:
         llm = AsyncMock()
         llm.ainvoke = ainvoke
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm, prompts
 
     @pytest.mark.asyncio

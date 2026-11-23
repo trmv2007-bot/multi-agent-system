@@ -25,10 +25,11 @@ from src.design import (
     capture_reset,
     fallback_theme,
     is_default,
-    parse_theme,
     subject_theme,
+    theme_from,
 )
 from src.graph.state import AgentRole, AgentState
+from src.structured import StructuredOutputError, call_json, parse_json
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +87,9 @@ stat, cta). Fix exactly what the review asked for and leave the rest as it was.
 Return HTML only: no fences, no explanation."""
 
 
-def parse_sections(text: str, fallback: str, limit: int) -> list[dict[str, Any]]:
-    """Read a JSON list of sections out of a model reply."""
-    match = re.search(r"\[.*\]", text, re.S)
-    items: list[Any] = []
-    if match:
-        try:
-            parsed = json.loads(match.group(0))
-            if isinstance(parsed, list):
-                items = parsed
-        except json.JSONDecodeError:
-            items = []
+def sections_from(payload: Any, fallback: str, limit: int) -> list[dict[str, Any]]:
+    """Shape a parsed outline reply into sections, falling back to one hero."""
+    items = payload if isinstance(payload, list) else []
 
     sections: list[dict[str, Any]] = []
     for item in items:
@@ -117,20 +110,18 @@ def parse_sections(text: str, fallback: str, limit: int) -> list[dict[str, Any]]
     return [{"id": 0, "section": "hero", "brief": fallback}]
 
 
-def parse_fixes(text: str, limit: int) -> list[dict[str, str]]:
-    """Read the review's JSON list of defects."""
-    match = re.search(r"\[.*\]", text, re.S)
-    if not match:
-        return []
-    try:
-        items = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(items, list):
+def parse_sections(text: str, fallback: str, limit: int) -> list[dict[str, Any]]:
+    """Read a JSON list of sections out of a model reply."""
+    return sections_from(parse_json(text, expect=list), fallback, limit)
+
+
+def fixes_from(payload: Any, limit: int) -> list[dict[str, str]]:
+    """Shape the review's parsed reply into the defects it found."""
+    if not isinstance(payload, list):
         return []
 
     fixes: list[dict[str, str]] = []
-    for item in items:
+    for item in payload:
         if not isinstance(item, dict):
             continue
         section = str(item.get("section") or "").strip()
@@ -172,13 +163,21 @@ class BuildPlannerAgent(BaseAgent):
 
     async def execute(self, state: AgentState) -> dict[str, Any]:
         start = time.time()
-        response = await self._ainvoke(
-            [
-                {"role": "system", "content": self.config.system_prompt},
-                {"role": "user", "content": f"Page to plan: {state.current_task}"},
-            ]
-        )
-        sections = parse_sections(str(response.content), state.current_task, self.max_sections)
+        sections = [{"id": 0, "section": "hero", "brief": state.current_task}]
+        try:
+            payload = await call_json(
+                self._json_sender(self._actor()),
+                [
+                    {"role": "system", "content": self.config.system_prompt},
+                    {"role": "user", "content": f"Page to plan: {state.current_task}"},
+                ],
+                site="build.planner",
+                expect=list,
+            )
+        except StructuredOutputError as error:
+            logger.warning("page planner fell back to one hero section: %s", error)
+        else:
+            sections = sections_from(payload, state.current_task, self.max_sections)
 
         return {
             "plan": sections,
@@ -263,20 +262,29 @@ class ReplanAgent(BaseAgent):
         outline = json.dumps(
             [{"section": i.get("section"), "brief": i.get("brief")} for i in state.plan]
         )
-        response = await self._ainvoke(
-            [
-                {"role": "system", "content": self.config.system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Page: {state.current_task}\n\nCurrent outline: {outline}\n\n"
-                        f"Research notes:\n{notes[:4000]}\n\n"
-                        "Return the improved outline as JSON."
-                    ),
-                },
-            ]
-        )
-        revised = parse_sections(str(response.content), state.current_task, self.max_sections)
+        revised: list[dict[str, Any]] = [{"id": 0, "section": "hero", "brief": state.current_task}]
+        try:
+            payload = await call_json(
+                self._json_sender(self._actor()),
+                [
+                    {"role": "system", "content": self.config.system_prompt},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Page: {state.current_task}\n\nCurrent outline: {outline}\n\n"
+                            f"Research notes:\n{notes[:4000]}\n\n"
+                            "Return the improved outline as JSON."
+                        ),
+                    },
+                ],
+                site="build.replanner",
+                expect=list,
+            )
+        except StructuredOutputError as error:
+            logger.warning("outline reviser fell back to one hero section: %s", error)
+            revised = sections_from([], state.current_task, self.max_sections)
+        else:
+            revised = sections_from(payload, state.current_task, self.max_sections)
 
         return {
             "plan": revised,
@@ -326,11 +334,13 @@ class DesignerAgent(BaseAgent):
             brief = ""
 
         # The tool call is the reliable path; the text is the fallback.
-        theme = dict(CAPTURED) if CAPTURED else parse_theme(brief)
+        theme = dict(CAPTURED) if CAPTURED else theme_from(parse_json(brief, expect=dict))
         if is_default(theme):
-            # The designer answered in prose. Ask once more, bluntly.
+            # The designer answered in prose, or broke the JSON. Ask once more,
+            # bluntly: the shared path adds its own nudge if this one is mangled.
             try:
-                stricter = await self._ainvoke(
+                payload = await call_json(
+                    self._json_sender(self._actor()),
                     [
                         {"role": "system", "content": self.config.system_prompt},
                         {
@@ -341,14 +351,14 @@ class DesignerAgent(BaseAgent):
                                 "no code fences."
                             ),
                         },
-                    ]
+                    ],
+                    site="build.designer",
+                    expect=dict,
                 )
-                retried = parse_theme(text_only(stricter))
-                if not is_default(retried):
-                    theme = retried
-            except Exception as e:
-                # Keep whatever we have; the subject match below covers it.
-                logger.debug("designer retry failed: %s", e)
+            except StructuredOutputError as error:
+                logger.warning("designer kept the subject's own theme: %s", error)
+            else:
+                theme = theme_from(payload)
         if is_default(theme):
             theme = subject_theme(state.current_task) or fallback_theme(state.current_task)
 
@@ -481,19 +491,27 @@ class CritiqueAgent(BaseAgent):
         start = time.time()
         outline = "\n".join(f"- {item.get('section')}" for item in state.plan)
         page = state.final_report or ""
-        response = await self._ainvoke(
-            [
-                {"role": "system", "content": self.config.system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Page: {state.current_task}\n\nOutline:\n{outline}\n\n"
-                        f"Assembled HTML:\n{page[:9000]}"
-                    ),
-                },
-            ]
-        )
-        fixes = parse_fixes(str(response.content), self.max_fixes)
+        fixes: list[dict[str, str]] = []
+        try:
+            payload = await call_json(
+                self._json_sender(self._actor()),
+                [
+                    {"role": "system", "content": self.config.system_prompt},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Page: {state.current_task}\n\nOutline:\n{outline}\n\n"
+                            f"Assembled HTML:\n{page[:9000]}"
+                        ),
+                    },
+                ],
+                site="build.critic",
+                expect=list,
+            )
+        except StructuredOutputError as error:
+            logger.warning("page review found nothing to fix: %s", error)
+        else:
+            fixes = fixes_from(payload, self.max_fixes)
         round_number = int(state.context.get("fix_round", 0)) + 1
 
         return {
