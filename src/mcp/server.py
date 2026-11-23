@@ -32,6 +32,9 @@ class MCPToolServer:
             "fetch_url": lambda arguments: tools.fetch_url(
                 arguments["url"], arguments.get("max_chars", 5000)
             ),
+            "gather_sources": lambda arguments: tools.gather_sources(
+                arguments["query"], arguments.get("max_sources", 4)
+            ),
             "search_github": lambda arguments: tools.search_github(
                 arguments["query"], arguments.get("type", "repositories")
             ),
@@ -78,6 +81,25 @@ class MCPToolServer:
                         },
                     },
                     "required": ["url"],
+                },
+            ),
+            Tool(
+                name="gather_sources",
+                description=(
+                    "Search, open the top results, and return only the pages that are about "
+                    "the query, one per site, documentation first"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "max_sources": {
+                            "type": "integer",
+                            "default": 4,
+                            "description": "Maximum pages to return",
+                        },
+                    },
+                    "required": ["query"],
                 },
             ),
             Tool(

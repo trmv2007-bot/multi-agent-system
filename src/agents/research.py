@@ -39,7 +39,9 @@ Rules:
 FINDER_PROMPT = """You are one researcher on a team. You have one question.
 
 Rules:
-- Use your tools. Search, then open the most relevant pages before answering.
+- Use your tools. Start with gather_sources, which searches, opens the pages, and
+  keeps only those on topic; use web_search plus fetch_url only to follow a
+  specific link. Read before answering.
 - Answer your question directly in 120-200 words.
 - Keep every URL you actually used, one per line at the end after "SOURCES:".
 - If the sources disagree, say so in one sentence.

@@ -2,6 +2,8 @@
 
 import asyncio
 import html
+import logging
+import math
 import random
 import re
 from datetime import UTC, datetime
@@ -13,6 +15,8 @@ from langchain_core.tools import BaseTool, StructuredTool
 
 from src.config import settings
 
+logger = logging.getLogger(__name__)
+
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) multi-agent-system/0.1"
 DUCKDUCKGO_HTML = "https://html.duckduckgo.com/html/"
 DUCKDUCKGO_LITE = "https://lite.duckduckgo.com/lite/"
@@ -21,6 +25,9 @@ SEARCH_ATTEMPTS = 3
 GITHUB_SEARCH = "https://api.github.com/search"
 HTTP_FORBIDDEN = 403
 _TAG_RE = re.compile(r"<[^>]+>")
+_SCRIPT_RE = re.compile(r"<(script|style|noscript|template)\b[^>]*>.*?</\1>", re.S | re.I)
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
+_BLANK_RUN_RE = re.compile(r"[ \t\r\f\v]+")
 _RESULT_RE = re.compile(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', re.S)
 _SNIPPET_RE = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
 
@@ -28,6 +35,25 @@ _SNIPPET_RE = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
 def _strip_tags(fragment: str) -> str:
     """Turn a HTML fragment into plain text."""
     return html.unescape(_TAG_RE.sub("", fragment)).strip()
+
+
+def html_to_text(page: str) -> str:
+    """The readable text of a page: no scripts, styles, comments, or markup.
+
+    Both the researcher and the relevance filter read this, so markup has to go
+    first: a query term inside a ``<script>`` tag is not a page about the query,
+    and a page whose first two thousand characters are ``<head>`` chrome is not
+    shorter than one that gets to the point.
+    """
+    if "<" not in page:
+        return page.strip()
+
+    text = _COMMENT_RE.sub(" ", _SCRIPT_RE.sub(" ", page))
+    lines = (
+        _BLANK_RUN_RE.sub(" ", line).strip()
+        for line in html.unescape(_TAG_RE.sub(" ", text)).splitlines()
+    )
+    return "\n".join(line for line in lines if line)
 
 
 def _unwrap_redirect(href: str) -> str:
@@ -56,6 +82,266 @@ def parse_duckduckgo(page: str, limit: int) -> list[dict[str, str]]:
     return results
 
 
+MIN_SOURCES = 2
+"""How many on-topic pages one question needs before the relevance filter is trusted.
+
+Below this, filtering would hand the researcher a thinner evidence base than the
+search actually gave it, so the unfiltered set is kept instead and the run says so.
+"""
+
+GATHER_RESULTS = 4
+"""How many results one ``gather_sources`` call returns."""
+
+EXCERPT_CHARS = 2500
+"""How much of one page is handed to the researcher."""
+
+REQUIRED_TERM_SHARE = 0.6
+"""Share of a query's distinctive terms a page must mention to count as on topic.
+
+Rounded up, so a two-word query needs both words, three needs two, five needs three.
+"""
+
+TIER_AGGREGATOR = 0
+TIER_GENERAL = 1
+TIER_REFERENCE = 2
+TIER_PRIMARY = 3
+
+AGGREGATOR_HOSTS = frozenset(
+    {
+        "answers.com",
+        "blogspot.com",
+        "dev.to",
+        "ehow.com",
+        "facebook.com",
+        "hashnode.dev",
+        "linkedin.com",
+        "medium.com",
+        "pinterest.com",
+        "quora.com",
+        "reddit.com",
+        "scribd.com",
+        "slideshare.net",
+        "substack.com",
+        "tumblr.com",
+        "twitter.com",
+        "wikihow.com",
+        "wordpress.com",
+        "x.com",
+        "youtube.com",
+    }
+)
+"""Sites where anyone can publish: demoted below everything else."""
+
+REFERENCE_HOSTS = frozenset(
+    {"arxiv.org", "britannica.com", "nature.com", "sciencedirect.com", "wikipedia.org"}
+)
+"""Compiled reference works: ranked above general pages, below official ones."""
+
+PRIMARY_HOSTS = frozenset({"crates.io", "npmjs.com", "pypi.org"})
+PRIMARY_HOST_PREFIXES = ("api.", "developer.", "developers.", "docs.", "learn.", "reference.")
+PRIMARY_HOST_SUFFIXES = (".edu", ".gov", ".int", ".mil", ".readthedocs.io")
+PRIMARY_PATH_MARKERS = (
+    "/api/",
+    "/doc/",
+    "/docs/",
+    "/documentation/",
+    "/guide/",
+    "/manual/",
+    "/reference/",
+    "/rfc/",
+    "/spec",
+)
+"""Documentation, standards, and official sites: ranked above everything else."""
+
+TRACKING_PARAMS = frozenset(
+    {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref", "ref_src", "source"}
+)
+"""Query parameters that never change which page a URL points at."""
+
+STOPWORDS = frozenset(
+    """
+    a about above after again against all am an and any are as at be because been before
+    being below best between both but by can could did do does doing down during each few
+    for from further good had has have having he her here hers him his how i if in into is
+    it its itself just latest me more most my no nor not now of off on once only or other
+    ours out over own same she should so some such than that the their them then there
+    these they this those through to too top under until up us very was we were what when
+    where which while who whom why will with would you your versus vs
+    """.split()
+)
+"""Words that say nothing about what a query is about."""
+
+MIN_TERM_CHARS = 2
+"""Shorter tokens (``a``, ``x``, a stray digit) carry no topic on their own."""
+
+QUERY_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9+.#_-]*")
+
+
+def domain_of(url: str) -> str:
+    """The site a URL belongs to, without ``www.`` or a port."""
+    host = (urlparse(url).netloc or "").lower().rsplit("@", 1)[-1].split(":")[0]
+    return host.removeprefix("www.")
+
+
+def canonical_url(url: str) -> str:
+    """The URL with everything that never changes which page it is removed.
+
+    Scheme, ``www.``, a trailing slash, ``index.html``, an AMP suffix, and
+    tracking parameters all go, so two links to one page compare equal.
+    """
+    parsed = urlparse(url)
+    path = (parsed.path or "/").removesuffix("/index.html").removesuffix("/index.htm")
+    path = path.removesuffix("/amp").rstrip("/") or "/"
+    params = sorted(
+        (name, value)
+        for name, values in parse_qs(parsed.query).items()
+        if not name.startswith("utm_") and name not in TRACKING_PARAMS
+        for value in values
+    )
+    query = "&".join(f"{name}={value}" for name, value in params)
+    return f"{domain_of(url)}{path}" + (f"?{query}" if query else "")
+
+
+def dedupe_results(
+    results: list[dict[str, str]],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Collapse results to one page per site before anything is fetched.
+
+    Two links to the same page, and a second result from a site already in the
+    list, are dropped with the reason recorded. The first occurrence wins: the
+    engine ordered the results by relevance already, so the earliest one is the
+    result it thought best.
+    """
+    kept: list[dict[str, str]] = []
+    dropped: list[dict[str, str]] = []
+    seen_pages: set[str] = set()
+    seen_sites: set[str] = set()
+
+    for result in results:
+        url = str(result.get("url") or "")
+        page, site = canonical_url(url), domain_of(url)
+        if page in seen_pages:
+            dropped.append({"url": url, "reason": "duplicate page"})
+        elif site in seen_sites:
+            dropped.append({"url": url, "reason": f"second result from {site}"})
+        else:
+            seen_pages.add(page)
+            seen_sites.add(site)
+            kept.append(result)
+    return kept, dropped
+
+
+def distinctive_terms(query: str) -> list[str]:
+    """The words in a query that actually identify it, in the order they appear.
+
+    Stopwords and one-character tokens say nothing about the topic, so a page
+    could match them and still be about something else. Everything else is
+    kept, version numbers included.
+    """
+    terms: list[str] = []
+    for token in QUERY_TOKEN_RE.findall(query.lower()):
+        word = token.strip("._-")
+        if len(word) < MIN_TERM_CHARS or word in STOPWORDS:
+            continue
+        if word not in terms:
+            terms.append(word)
+    return terms
+
+
+def matched_terms(terms: list[str], text: str) -> int:
+    """How many of the query's terms this page mentions."""
+    haystack = text.lower()
+    return sum(1 for term in terms if term in haystack)
+
+
+def is_relevant(terms: list[str], text: str) -> bool:
+    """Whether a page mentions enough of the query's terms to be on topic.
+
+    A query with no distinctive terms (``what is the best``) matches everything:
+    there is nothing to judge it against, so nothing is dropped.
+    """
+    if not terms:
+        return True
+    return matched_terms(terms, text) >= math.ceil(len(terms) * REQUIRED_TERM_SHARE)
+
+
+def source_tier(url: str) -> int:
+    """How primary a page looks from its URL alone; higher is better.
+
+    The rule is deliberately blunt and readable: known places where anyone can
+    publish are demoted, documentation hosts and paths, official domains, and
+    source-code links are promoted, compiled references sit between, and the rest
+    keeps the middle.
+    """
+    host = domain_of(url)
+    path = (urlparse(url).path or "/").lower()
+    on_host = host if host in AGGREGATOR_HOSTS else ""
+
+    if on_host or any(host.endswith(f".{farm}") for farm in AGGREGATOR_HOSTS):
+        return TIER_AGGREGATOR
+    if (
+        host in PRIMARY_HOSTS
+        or host.endswith(PRIMARY_HOST_SUFFIXES)
+        or host.startswith(PRIMARY_HOST_PREFIXES)
+    ):
+        return TIER_PRIMARY
+    if host == "github.com" and ("/blob/" in path or "/tree/" in path):
+        return TIER_PRIMARY
+    if any(marker in path for marker in PRIMARY_PATH_MARKERS):
+        return TIER_PRIMARY
+    if host in REFERENCE_HOSTS or any(host.endswith(f".{ref}") for ref in REFERENCE_HOSTS):
+        return TIER_REFERENCE
+    return TIER_GENERAL
+
+
+def source_rank(source: dict[str, Any]) -> tuple[int, int]:
+    """Sort key for one fetched page: primary first, then long-form."""
+    return source_tier(str(source.get("url") or "")), min(
+        len(str(source.get("content") or "")), 40_000
+    )
+
+
+def rank_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order pages so documentation and long-form come before farms, longest first."""
+    return sorted(sources, key=source_rank, reverse=True)
+
+
+def filter_sources(
+    query: str, sources: list[dict[str, Any]], minimum: int = MIN_SOURCES
+) -> dict[str, Any]:
+    """Keep the fetched pages that are about the query, or keep them all and say why.
+
+    Returns ``sources`` (what the caller should use), ``dropped`` (one reason line
+    per rejected page), ``applied``, and a ``note`` when the filter was overruled.
+    Fewer than ``minimum`` surviving pages means the unfiltered set comes back
+    instead: an under-sourced answer is worse than a noisy one.
+    """
+    terms = distinctive_terms(query)
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, str]] = []
+
+    for source in sources:
+        text = str(source.get("content") or "")
+        if not text or is_relevant(terms, text):
+            kept.append(source)
+        else:
+            dropped.append(
+                {
+                    "url": str(source.get("url") or ""),
+                    "reason": f"mentions {matched_terms(terms, text)} of {len(terms)} query terms",
+                }
+            )
+
+    if len(kept) >= minimum or not dropped:
+        return {"sources": kept, "dropped": dropped, "applied": bool(dropped), "note": ""}
+
+    note = (
+        f"only {len(kept)} of {len(sources)} pages were on topic, below the minimum of "
+        f"{minimum}, so every fetched page was kept"
+    )
+    return {"sources": list(sources), "dropped": dropped, "applied": False, "note": note}
+
+
 async def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """
     Search the web, tolerating several agents searching at the same time.
@@ -82,10 +368,25 @@ async def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
                 continue
             response.raise_for_status()
 
-            results = parse_duckduckgo(response.text, max_results)
+            results = parse_duckduckgo(response.text, max_results * 2)
+            results, duplicates = dedupe_results(results)
+            results = results[:max_results]
+            if duplicates:
+                logger.info(
+                    "search %r: kept %d results, dropped %d (%s)",
+                    query,
+                    len(results),
+                    len(duplicates),
+                    "; ".join(f"{item['url']} {item['reason']}" for item in duplicates),
+                )
             if results:
                 primitive = "duckduckgo"
-                return {"query": query, "engine": primitive, "results": results}
+                return {
+                    "query": query,
+                    "engine": primitive,
+                    "results": results,
+                    "dropped": len(duplicates),
+                }
             last = "no parseable results"
         except Exception as e:
             last = f"{type(e).__name__}: {e}"
@@ -94,7 +395,12 @@ async def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
 
 
 async def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
-    """Fetch a URL and return its text content, truncated to max_chars."""
+    """Fetch a URL and return its readable text, truncated to max_chars.
+
+    HTML is reduced to its text, because a model reading markup spends its
+    context on ``<div>`` tags and a relevance check finds no words in a page it
+    cannot read. Everything that is not HTML is returned as it came.
+    """
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.get(url, follow_redirects=True)
@@ -102,7 +408,10 @@ async def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
         except Exception as e:
             return {"url": url, "error": str(e)}
 
+    content_type = response.headers.get("content-type", "unknown")
     content = response.text
+    if "html" in content_type.lower() or "<html" in content[:2000].lower():
+        content = html_to_text(content)
     if len(content) > max_chars:
         content = content[:max_chars] + "... [truncated]"
 
@@ -110,7 +419,55 @@ async def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
         "url": url,
         "status_code": response.status_code,
         "content": content,
-        "content_type": response.headers.get("content-type", "unknown"),
+        "content_type": content_type,
+    }
+
+
+async def gather_sources(query: str, max_sources: int = GATHER_RESULTS) -> dict[str, Any]:
+    """Search, drop duplicate sites, open the results, keep the pages that are on topic.
+
+    The one call a researcher needs for evidence: it searches, collapses several
+    results from one site into one, opens the survivors, drops the pages that are
+    not about the query, ranks the rest documentation-first, and reports in one
+    line what it dropped and why. When filtering would leave fewer than
+    ``MIN_SOURCES`` pages it returns every fetched page and says so in ``note``.
+    """
+    search = await web_search(query, max_results=max_sources * 2)
+    candidates = search["results"][: max_sources + 2]
+    opened = await asyncio.gather(
+        *(fetch_url(str(result["url"]), max_chars=EXCERPT_CHARS) for result in candidates)
+    )
+
+    titles = {str(result["url"]): str(result.get("title") or "") for result in candidates}
+    fetched = [
+        {**page, "title": titles.get(str(page.get("url")), "")}
+        for page in opened
+        if str(page.get("content") or "").strip()
+    ]
+    if not fetched:
+        note = "no search result could be opened, so there is nothing to read"
+        logger.info("sources %r: %s", query, note)
+        return {"query": query, "sources": [], "dropped": [], "note": note}
+
+    selection = filter_sources(query, fetched)
+    sources = rank_sources(selection["sources"])[:max_sources]
+    dropped = "; ".join(f"{item['url']} {item['reason']}" for item in selection["dropped"][:3])
+    logger.info(
+        "sources %r: opened %d, kept %d, dropped %d%s",
+        query,
+        len(fetched),
+        len(sources),
+        len(selection["dropped"]),
+        f" ({dropped})" if dropped else "",
+    )
+    if selection["note"]:
+        logger.info("sources %r: %s", query, selection["note"])
+
+    return {
+        "query": query,
+        "sources": sources,
+        "dropped": selection["dropped"],
+        "note": selection["note"],
     }
 
 
@@ -272,7 +629,19 @@ def _web_tools() -> list[BaseTool]:
         StructuredTool.from_function(
             coroutine=web_search,
             name="web_search",
-            description="Search the web for current information. Returns titles, URLs and snippets.",
+            description=(
+                "Search the web for current information. Returns titles, URLs and snippets, "
+                "one result per site."
+            ),
+        ),
+        StructuredTool.from_function(
+            coroutine=gather_sources,
+            name="gather_sources",
+            description=(
+                "Search, open the top results, and return the pages that are actually about "
+                "the question, one per site, documentation first. Prefer this over "
+                "web_search + fetch_url when you need evidence for a question."
+            ),
         ),
         StructuredTool.from_function(
             coroutine=fetch_url,
