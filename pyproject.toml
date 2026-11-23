@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
     # Core orchestration
     "langgraph>=0.2.0",
+    "langgraph-checkpoint-sqlite>=2.0.0",
     "langchain-core>=0.3.0",
     "langchain-openai>=0.2.0",
     "langchain-mcp-adapters>=0.1.0",
@@ -36,7 +37,9 @@ dependencies = [
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
     "opentelemetry-exporter-otlp>=1.20.0",
+    "opentelemetry-instrumentation-httpx>=0.40.0",
     "opentelemetry-instrumentation-langchain>=0.40.0",
+    "opentelemetry-instrumentation-requests>=0.40.0",
     "langsmith>=0.1.0",
     
     # LLM providers
@@ -138,6 +141,10 @@ indent-style = "space"
 
 [tool.mypy]
 python_version = "3.12"
+# Type against the platform this ships to: ctypes.windll, os.add_dll_directory,
+# and the nt event loop are Windows-only, so a Linux type check reports them as
+# missing attributes. CI runs on ubuntu-latest for cost; the code does not.
+platform = "win32"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -153,7 +160,14 @@ module = ["langgraph.checkpoint.postgres"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["pywinauto", "pyperclip", "faster_whisper", "ctranslate2"]
+module = [
+    "pywinauto",
+    "pyperclip",
+    "faster_whisper",
+    "ctranslate2",
+    "pyautogui",
+    "PIL",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
