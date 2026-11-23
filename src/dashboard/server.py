@@ -770,7 +770,8 @@ def main() -> None:
     """Serve the dashboard."""
     host = settings.dashboard_host
     port = settings.dashboard_port
-    shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    # Comparing against the wildcard address to pick a clickable URL, not binding to it.
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host  # nosec B104
     url = f"http://{shown}:{port}"
     print(f"Multi-agent dashboard: {url}  (Ctrl+C to stop)")
 

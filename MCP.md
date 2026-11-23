@@ -82,6 +82,30 @@ python -m src.mcp.server --http
 That serves JSON-RPC at `POST http://127.0.0.1:8001/mcp` with `tools/list` and
 `tools/call`, plus `GET /health`. Useful for agents that cannot spawn subprocesses.
 
+The HTTP transport listens on loopback only. That is deliberate: these tools
+include `team_task` and `research_report`, which run agents, and with
+`COMPUTER_USE=true` those agents can move the mouse and type. Anything that can
+reach the port can drive them.
+
+To listen beyond this machine, set a shared token as well as the host:
+
+```bash
+# .env
+MCP_SERVER_HOST=0.0.0.0
+SERVER_AUTH_TOKEN=<long-random-string>
+```
+
+The server refuses to start on a non-loopback host when `SERVER_AUTH_TOKEN` is
+unset, and names the variable to set. With a token configured, every request
+needs it, or it gets `401`:
+
+```bash
+curl -s http://127.0.0.1:8001/mcp   -H "Authorization: Bearer $SERVER_AUTH_TOKEN"   -H "Content-Type: application/json"   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+A token does not make the server a safe public endpoint: put it behind a
+firewall, a VPN, or a TLS-terminating proxy, and never expose it to the internet.
+
 ## Checking the connection without an agent
 
 Run the test suite, which starts the server the same way a client does and calls

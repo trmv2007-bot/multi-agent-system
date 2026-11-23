@@ -244,12 +244,25 @@ class Settings(BaseSettings):
     dashboard_port: int = Field(default=8765, description="Dashboard port")
 
     # MCP Server
-    mcp_server_host: str = Field(default="0.0.0.0", description="MCP server host")
+    mcp_server_host: str = Field(
+        default="127.0.0.1",
+        description="MCP server host; anything beyond loopback needs SERVER_AUTH_TOKEN",
+    )
     mcp_server_port: int = Field(default=8001, description="MCP server port")
 
     # A2A Server
-    a2a_server_host: str = Field(default="0.0.0.0", description="A2A server host")
+    a2a_server_host: str = Field(
+        default="127.0.0.1",
+        description="A2A server host; anything beyond loopback needs SERVER_AUTH_TOKEN",
+    )
     a2a_server_port: int = Field(default=8002, description="A2A server port")
+
+    # Shared by both HTTP servers: set it to let them bind beyond loopback, and
+    # every request then has to carry "Authorization: Bearer <token>".
+    server_auth_token: str | None = Field(
+        default=None,
+        description="Bearer token the MCP and A2A HTTP servers require on every request",
+    )
 
     # Application
     log_level: str = Field(default="INFO", description="Logging level")

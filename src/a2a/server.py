@@ -27,6 +27,12 @@ from pydantic import BaseModel, Field
 from src.agents import AgentRole, BaseAgent, create_agents
 from src.config import get_tracer, settings
 from src.graph.state import AgentState
+from src.server_guard import (
+    AUTH_ENV_VAR,
+    add_token_middleware,
+    auth_headers,
+    require_authenticated_bind,
+)
 
 A2A_PROTOCOL_VERSION = "1.0"
 
@@ -77,7 +83,8 @@ class A2AResponse(BaseModel):
 class A2AAgentServer:
     """A2A Server that exposes agents as remote services."""
 
-    def __init__(self) -> None:
+    def __init__(self, auth_token: str | None = None) -> None:
+        self.auth_token = auth_token
         self._agents: dict[AgentRole, BaseAgent] | None = None
         self.skills = self._define_skills()
         self.agent_card = self._create_agent_card()
@@ -174,6 +181,7 @@ class A2AAgentServer:
     def _create_app(self) -> FastAPI:
         """Create FastAPI app with A2A endpoints."""
         app = FastAPI(title="A2A Agent Server")
+        add_token_middleware(app, self.auth_token)
 
         @app.get("/.well-known/agent.json")
         async def agent_card() -> dict[str, Any]:
@@ -316,15 +324,18 @@ class A2AAgentServer:
 class A2AAgentClient:
     """A2A Client for calling remote agents."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, auth_token: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
+        self.headers = auth_headers(auth_token)
         self.agent_card: dict[str, Any] | None = None
         self._skills_cache: dict[str, dict[str, Any]] = {}
 
     async def discover(self) -> dict[str, Any]:
         """Discover the remote agent card."""
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{self.base_url}/.well-known/agent.json")
+            response = await client.get(
+                f"{self.base_url}/.well-known/agent.json", headers=self.headers
+            )
             response.raise_for_status()
             self.agent_card = response.json()
             for skill in self.agent_card.get("skills", []):
@@ -357,7 +368,7 @@ class A2AAgentClient:
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(f"{self.base_url}/", json=request)
+            response = await client.post(f"{self.base_url}/", json=request, headers=self.headers)
             response.raise_for_status()
             result = response.json()
 
@@ -389,7 +400,14 @@ async def run_a2a_server() -> None:
     import sys
 
     if len(sys.argv) > 1 and sys.argv[1] == "--http":
-        server = A2AAgentServer()
+        require_authenticated_bind(
+            settings.a2a_server_host,
+            settings.server_auth_token,
+            server="A2A",
+            host_env="A2A_SERVER_HOST",
+            token_env=AUTH_ENV_VAR,
+        )
+        server = A2AAgentServer(settings.server_auth_token)
         config = uvicorn.Config(
             server.app,
             host=settings.a2a_server_host,
