@@ -1,0 +1,905 @@
+{
+  "generated_at": "2026-11-23T06:44:41+00:00",
+  "mode": "live",
+  "model": "pooled-model",
+  "summary": {
+    "score": 0.989,
+    "cases": 15,
+    "measured": 15,
+    "passed": 14,
+    "failed": [
+      "build-docs-page"
+    ],
+    "unmeasured": [],
+    "seconds": 987.0,
+    "model_calls": 228,
+    "tokens": 581215,
+    "verdicts": {
+      "supported": 22,
+      "unsupported": 22,
+      "contradicted": 0
+    }
+  },
+  "results": [
+    {
+      "id": "pipeline-phantom-revenue",
+      "mode": "pipeline",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "133 words, need at least 12"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "133 words, allowed at most 280"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "abstain",
+          "passed": true,
+          "detail": "answered"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 65.4,
+        "model_calls": 9,
+        "tokens": 31554,
+        "prompt_tokens": 29989,
+        "completion_tokens": 1565,
+        "empty_replies": 0,
+        "answer_words": 133,
+        "answer_chars": 1002,
+        "answer_excerpt": "No verifiable evidence exists that \"Nimbus Veltrix Systems\" is a real company, nor that it reported revenue for fiscal year 2025. Searches returned only unrelated entities\u2014Nimbus Group (a Swedish boat manufacturer), Nimbus Projects Ltd (an Indian company), and Veltrix Dynamics/Systems\u2014with no combined entity matching that name. The company may not exist or may not be publicly documented. Unverified (no fetched source supports these): - {'query': 'Nimbus Veltrix Systems revenue fiscal year 2025', 'engine': 'duckduckgo', 'results': [{'title': 'PDF # Q1 202 (from web_search) - {'query': 'Nimbus V",
+        "abstained": false,
+        "verdicts": {
+          "supported": 4,
+          "unsupported": 4,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "pipeline-fictional-premise",
+      "mode": "pipeline",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "126 words, need at least 10"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "126 words, allowed at most 220"
+        },
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched \"(?i)(fictional|does not exist|isn't real|is not real|not a (?:real|recognised|recognized|sovereign|fifa-recognized|un-recognized) (?:country|nation)|no record of|no such (?:country|team|nation)|never (?:won|participated|qualified)|cannot|could not|unable to)\""
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "abstain",
+          "passed": true,
+          "detail": "answered"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 96.3,
+        "model_calls": 9,
+        "tokens": 29152,
+        "prompt_tokens": 27833,
+        "completion_tokens": 1319,
+        "empty_replies": 0,
+        "answer_words": 126,
+        "answer_chars": 911,
+        "answer_excerpt": "Valdoria has never won the FIFA World Cup. It is a fictional micronation, not a FIFA-recognized country, and has never competed in the tournament. Only eight real nations have won the World Cup: Brazil (5), Germany (4), Italy (4), Argentina (3), Uruguay (2), France (2), England (1), and Spain (2). Unverified (no fetched source supports these): - {'query': 'Valdoria FIFA World Cup wins', 'engine': 'duckduckgo', 'results': [{'title': 'List of FIFA World Cup finals - (from web_search) - {'query': 'Valdoria national football team World Cup history', 'engine': 'duckduckgo', 'results': [{'title': 'C",
+        "abstained": false,
+        "verdicts": {
+          "supported": 1,
+          "unsupported": 7,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "pipeline-cites-sources",
+      "mode": "pipeline",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "112 words, need at least 20"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "112 words, allowed at most 320"
+        },
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)python'"
+        },
+        {
+          "check": "answer_matches#2",
+          "passed": true,
+          "detail": "nothing matched '(?i)node'"
+        },
+        {
+          "check": "answer_requires_link",
+          "passed": true,
+          "detail": "no URL"
+        },
+        {
+          "check": "validation_required",
+          "passed": true,
+          "detail": "no claim was graded in this run"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 21.1,
+        "model_calls": 9,
+        "tokens": 29392,
+        "prompt_tokens": 28165,
+        "completion_tokens": 1227,
+        "empty_replies": 0,
+        "answer_words": 112,
+        "answer_chars": 984,
+        "answer_excerpt": "Python does not designate long-term support versions; all releases follow a standard maintenance period, with Python 3.13 as the latest stable version documented at https://devguide.python.org/versions/. Node.js 22 is the current Active LTS version, documented at https://nodejs.org/en/about/previous-releases, and receives critical bug fixes for approximately 30 months. Unverified (no fetched source supports these): - {'query': 'Python current long-term support version LTS release schedule', 'engine': 'duckduckgo', 'results': [{'title': (from web_search) - {'url': 'https://devguide.python.org/v",
+        "abstained": false,
+        "verdicts": {
+          "supported": 2,
+          "unsupported": 4,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "pipeline-stays-brief",
+      "mode": "pipeline",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "151 words, need at least 20"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "151 words, allowed at most 200"
+        },
+        {
+          "check": "answer_contains_any#1",
+          "passed": true,
+          "detail": "none of ['retrieval']"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#2",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#3",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#4",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 51.4,
+        "model_calls": 9,
+        "tokens": 34907,
+        "prompt_tokens": 32961,
+        "completion_tokens": 1946,
+        "empty_replies": 0,
+        "answer_words": 151,
+        "answer_chars": 1249,
+        "answer_excerpt": "Retrieval-Augmented Generation (RAG) is an AI technique that enhances large language models by connecting them to external knowledge bases. Before generating a response, RAG retrieves relevant information from sources such as documents or databases, then uses that context to produce more accurate, up-to-date, and grounded answers while reducing hallucinations. The evidence was thin: the IBM and AWS pages returned HTTP 200 but their content was not parsed into verifiable claims, and the Wikipedia page was blocked with a 403 Forbidden error. The definition above comes from the LLM synthesis rath",
+        "abstained": false,
+        "verdicts": {
+          "supported": 4,
+          "unsupported": 4,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "pipeline-no-pasted-markup",
+      "mode": "pipeline",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "130 words, need at least 25"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "130 words, allowed at most 320"
+        },
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)log'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#2",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#3",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#4",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "validation_required",
+          "passed": true,
+          "detail": "no claim was graded in this run"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 55.6,
+        "model_calls": 9,
+        "tokens": 40171,
+        "prompt_tokens": 38458,
+        "completion_tokens": 1713,
+        "empty_replies": 0,
+        "answer_words": 130,
+        "answer_chars": 972,
+        "answer_excerpt": "PostgreSQL's Write-Ahead Log (WAL) records every data change before it is written to the actual data files. When a transaction commits, its WAL records are flushed to disk first, guaranteeing durability even if the server crashes afterward. Background processes later write the actual data pages to disk. WAL records are stored as sequential 16 MB segment files in the `pg_wal` directory. The WAL writer process flushes these records to disk, while checkpoints periodically flush dirty data pages to disk and record a recovery starting point. After a crash, PostgreSQL replays WAL from the last check",
+        "abstained": false,
+        "verdicts": {
+          "supported": 8,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "pipeline-grades-its-claims",
+      "mode": "pipeline",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "83 words, need at least 10"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "83 words, allowed at most 320"
+        },
+        {
+          "check": "validation_required",
+          "passed": true,
+          "detail": "no claim was graded in this run"
+        },
+        {
+          "check": "findings_min",
+          "passed": true,
+          "detail": "5 findings, need at least 1"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 23.9,
+        "model_calls": 9,
+        "tokens": 28809,
+        "prompt_tokens": 27710,
+        "completion_tokens": 1099,
+        "empty_replies": 0,
+        "answer_words": 83,
+        "answer_chars": 722,
+        "answer_excerpt": "The default maximum size of a single Kafka message is 1 MB (1,048,576 bytes), controlled by the broker configuration `message.max.bytes`. Some sources note 1,048,588 bytes to account for 12 bytes of internal framing metadata. This limit is enforced by the broker to maintain throughput and prevent excessive memory usage. Sources: Confluent, Apache Kafka documentation, Conduktor, Factor House. Unverified (no fetched source supports these): - {'url': 'https://kafka.apache.org/41/configuration/broker-configs/', 'status_code': 200, 'content': '<!doctype html><htm (from fetch_url) - {'url': 'https:/",
+        "abstained": false,
+        "verdicts": {
+          "supported": 3,
+          "unsupported": 3,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "team-fans-out",
+      "mode": "team",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "156 words, need at least 30"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "156 words, allowed at most 300"
+        },
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)(fastapi|flask|django)'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#2",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "plan_min",
+          "passed": true,
+          "detail": "4 planned, need 3"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 79.4,
+        "model_calls": 16,
+        "tokens": 47211,
+        "prompt_tokens": 43902,
+        "completion_tokens": 3309,
+        "empty_replies": 0,
+        "answer_words": 156,
+        "answer_chars": 1067,
+        "answer_excerpt": "FastAPI leads on async: it's ASGI-native with full async/await support on Starlette/AnyIO, though sync endpoints run in a threadpool. Flask added async views in 2.0 but remains WSGI-based, so async is endpoint-level and bolted on. Django supports async views and middleware under ASGI, with async ORM queries arriving in 4.2/5.0, but the ORM and ecosystem are still sync-first. On ORMs, Django is the only batteries-included option with a mature built-in ORM and migrations. FastAPI ships none; the recommended stack is SQLModel/SQLAlchemy (sync or async), with Tortoise-ORM as a native async alterna",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "team-integrates",
+      "mode": "team",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "145 words, need at least 40"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "145 words, allowed at most 300"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#2",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#3",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "plan_min",
+          "passed": true,
+          "detail": "4 planned, need 2"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 51.6,
+        "model_calls": 22,
+        "tokens": 83963,
+        "prompt_tokens": 80977,
+        "completion_tokens": 2986,
+        "empty_replies": 0,
+        "answer_words": 145,
+        "answer_chars": 924,
+        "answer_excerpt": "Stay at Hotel Granvia Kyoto, directly connected to Kyoto Station with elevators and accessible rooms. Use the subway as your low-fatigue backbone\u2014every station has elevators\u2014and book accessible taxis ahead for hillside sites. Day 1: Arrive and settle in. Visit Kyoto Tower, dine at Aeon Mall, and take an evening stroll along the flat Kamo River path. Day 2: Morning at Nijo Castle (level paved grounds, ramps, benches), lunch nearby, rest at your hotel midday, then a gentle walk in Kyoto Gyoen National Garden on wide flat paths. Day 3: Fushimi Inari lower grounds only (flat, skip the mountain tra",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "team-refuses-to-invent",
+      "mode": "team",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "21 words, need at least 8"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "21 words, allowed at most 220"
+        },
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)(could not|cannot|unable|not able|no record|no evidence|no reliable|does not exist|no such)'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "abstain",
+          "passed": true,
+          "detail": "answered"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 62.5,
+        "model_calls": 7,
+        "tokens": 8422,
+        "prompt_tokens": 8033,
+        "completion_tokens": 389,
+        "empty_replies": 0,
+        "answer_words": 21,
+        "answer_chars": 140,
+        "answer_excerpt": "No verifiable information exists about a compound called corvalite-9 or its first synthesis in 2019, so the laboratory cannot be identified.",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "team-keeps-sources",
+      "mode": "team",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_min_words",
+          "passed": true,
+          "detail": "30 words, need at least 10"
+        },
+        {
+          "check": "answer_max_words",
+          "passed": true,
+          "detail": "30 words, allowed at most 240"
+        },
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)ubuntu'"
+        },
+        {
+          "check": "answer_requires_link",
+          "passed": true,
+          "detail": "no URL"
+        },
+        {
+          "check": "plan_min",
+          "passed": true,
+          "detail": "2 planned, need 1"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 2"
+        }
+      ],
+      "metrics": {
+        "seconds": 29.1,
+        "model_calls": 12,
+        "tokens": 18471,
+        "prompt_tokens": 17805,
+        "completion_tokens": 666,
+        "empty_replies": 0,
+        "answer_words": 30,
+        "answer_chars": 218,
+        "answer_excerpt": "Ubuntu 22.04 LTS standard support ends April 2027, with ESM support until April 2032. Ubuntu 24.04 LTS standard support ends April 2029, with ESM support until April 2034. Source: https://ubuntu.com/about/release-cycle",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "build-landing-page",
+      "mode": "build",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)class=\"hero\"'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#2",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#3",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "page",
+          "passed": true,
+          "detail": "not a complete document"
+        },
+        {
+          "check": "plan_min",
+          "passed": true,
+          "detail": "3 planned, need 3"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 3"
+        }
+      ],
+      "metrics": {
+        "seconds": 83.6,
+        "model_calls": 25,
+        "tokens": 47614,
+        "prompt_tokens": 41776,
+        "completion_tokens": 5838,
+        "empty_replies": 0,
+        "answer_words": 934,
+        "answer_chars": 7475,
+        "answer_excerpt": "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Build a landing page for Kettle, an open-source CLI that turns a folder of notes into a searchable local wiki.</title> <style> :root { --bg: #0b0f16; --surface: #131a26; --surface-2: #19222f; --line: #27303f; --text: #eef2f8; --muted: #9fb0c4; --accent: #f2b544; --accent-ink: #1a1200; --radius: 6px; } * { box-sizing: border-box; } body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 \"Segoe UI\", system-ui, -apple-system, sans-serif; -",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "build-docs-page",
+      "mode": "build",
+      "status": "graded",
+      "score": 0.833,
+      "passed": false,
+      "checks": [
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)forge'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#2",
+          "passed": false,
+          "detail": "matched '{{'"
+        },
+        {
+          "check": "page",
+          "passed": true,
+          "detail": "not a complete document"
+        },
+        {
+          "check": "plan_min",
+          "passed": true,
+          "detail": "4 planned, need 2"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 3"
+        }
+      ],
+      "metrics": {
+        "seconds": 120.1,
+        "model_calls": 24,
+        "tokens": 34698,
+        "prompt_tokens": 28789,
+        "completion_tokens": 5909,
+        "empty_replies": 0,
+        "answer_words": 1113,
+        "answer_chars": 10172,
+        "answer_excerpt": "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Build a documentation page for forge, a Python CLI that scaffolds new projects from templates.</title> <style> :root { --bg: #0b0f16; --surface: #131a26; --surface-2: #19222f; --line: #27303f; --text: #eef2f8; --muted: #9fb0c4; --accent: #f2b544; --accent-ink: #1a1200; --radius: 6px; } * { box-sizing: border-box; } body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 \"Segoe UI\", system-ui, -apple-system, sans-serif; -webkit-font-smoo",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "build-no-invented-price",
+      "mode": "build",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)pric'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "sections_required#1",
+          "passed": true,
+          "detail": "none of ['pric']"
+        },
+        {
+          "check": "page",
+          "passed": true,
+          "detail": "not a complete document"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 3"
+        }
+      ],
+      "metrics": {
+        "seconds": 84.9,
+        "model_calls": 23,
+        "tokens": 52075,
+        "prompt_tokens": 44555,
+        "completion_tokens": 7520,
+        "empty_replies": 0,
+        "answer_words": 1093,
+        "answer_chars": 8842,
+        "answer_excerpt": "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Build a pricing page for Sellscale's enterprise plan, using their real current price.</title> <style> :root { --bg: #0b0f16; --surface: #131a26; --surface-2: #19222f; --line: #27303f; --text: #eef2f8; --muted: #9fb0c4; --accent: #f2b544; --accent-ink: #1a1200; --radius: 6px; } * { box-sizing: border-box; } body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 \"Segoe UI\", system-ui, -apple-system, sans-serif; -webkit-font-smoothing: an",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "build-complete-document",
+      "mode": "build",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)saturday'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "answer_excludes#2",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "page",
+          "passed": true,
+          "detail": "not a complete document"
+        },
+        {
+          "check": "plan_min",
+          "passed": true,
+          "detail": "3 planned, need 2"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 3"
+        }
+      ],
+      "metrics": {
+        "seconds": 89.7,
+        "model_calls": 22,
+        "tokens": 44127,
+        "prompt_tokens": 34126,
+        "completion_tokens": 10001,
+        "empty_replies": 0,
+        "answer_words": 898,
+        "answer_chars": 7424,
+        "answer_excerpt": "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Build a one-page site for a neighbourhood repair cafe that opens on Saturdays.</title> <style> :root { --bg: #0b0f16; --surface: #131a26; --surface-2: #19222f; --line: #27303f; --text: #eef2f8; --muted: #9fb0c4; --accent: #f2b544; --accent-ink: #1a1200; --radius: 6px; } * { box-sizing: border-box; } body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 \"Segoe UI\", system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialias",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    },
+    {
+      "id": "build-brand-present",
+      "mode": "build",
+      "status": "graded",
+      "score": 1.0,
+      "passed": true,
+      "checks": [
+        {
+          "check": "answer_matches#1",
+          "passed": true,
+          "detail": "nothing matched '(?i)tidepool'"
+        },
+        {
+          "check": "answer_excludes#1",
+          "passed": true,
+          "detail": "matched None"
+        },
+        {
+          "check": "page",
+          "passed": true,
+          "detail": "not a complete document"
+        },
+        {
+          "check": "plan_min",
+          "passed": true,
+          "detail": "4 planned, need 3"
+        },
+        {
+          "check": "errors_max",
+          "passed": true,
+          "detail": "0 errors, allowed 3"
+        }
+      ],
+      "metrics": {
+        "seconds": 72.4,
+        "model_calls": 23,
+        "tokens": 50649,
+        "prompt_tokens": 42966,
+        "completion_tokens": 7683,
+        "empty_replies": 0,
+        "answer_words": 1015,
+        "answer_chars": 8279,
+        "answer_excerpt": "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Build a landing page for Tidepool, a tool that tracks open-source maintainer burnout.</title> <style> :root { --bg: #0b0f16; --surface: #131a26; --surface-2: #19222f; --line: #27303f; --text: #eef2f8; --muted: #9fb0c4; --accent: #f2b544; --accent-ink: #1a1200; --radius: 6px; } * { box-sizing: border-box; } body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 \"Segoe UI\", system-ui, -apple-system, sans-serif; -webkit-font-smoothing: an",
+        "abstained": false,
+        "verdicts": {
+          "supported": 0,
+          "unsupported": 0,
+          "contradicted": 0
+        },
+        "errors": []
+      }
+    }
+  ]
+}
