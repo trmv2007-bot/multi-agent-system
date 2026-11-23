@@ -417,14 +417,34 @@ class TestA2AServer:
     """The A2A server must build its agent card and run tasks over HTTP."""
 
     @pytest.fixture
-    def client(self):
+    def client(self, monkeypatch):
         from fastapi.testclient import TestClient
 
         from src.a2a.server import A2AAgentServer
 
+        stub_llm = AsyncMock()
+        monkeypatch.setattr("src.agents.base.get_llm", MagicMock(return_value=stub_llm))
         server = A2AAgentServer()
         server.agents[AgentRole.VALIDATOR].llm = AsyncMock()
         return TestClient(server.app)
+
+    def test_server_needs_no_credentials_to_build(self, monkeypatch):
+        """Discovery and the HTTP app must not depend on a configured provider."""
+        from fastapi.testclient import TestClient
+
+        from src.a2a.server import A2AAgentServer
+
+        def no_provider():
+            raise RuntimeError("no provider configured")
+
+        monkeypatch.setattr("src.agents.base.get_llm", no_provider)
+        server = A2AAgentServer()
+
+        assert server.app is not None
+        assert server.agent_card.name == "Multi-Agent System"
+
+        response = TestClient(server.app).get("/.well-known/agent-card.json")
+        assert response.status_code == 200
 
     def test_agent_card(self, client):
         response = client.get("/.well-known/agent.json")

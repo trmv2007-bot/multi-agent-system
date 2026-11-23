@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, Field
 
-from src.agents import AgentRole, create_agents
+from src.agents import AgentRole, BaseAgent, create_agents
 from src.config import get_tracer, settings
 from src.graph.state import AgentState
 
@@ -78,11 +78,23 @@ class A2AAgentServer:
     """A2A Server that exposes agents as remote services."""
 
     def __init__(self) -> None:
-        self.agents = create_agents()
+        self._agents: dict[AgentRole, BaseAgent] | None = None
         self.skills = self._define_skills()
         self.agent_card = self._create_agent_card()
         self.tasks: dict[str, Task] = {}
         self.app = self._create_app()
+
+    @property
+    def agents(self) -> dict[AgentRole, BaseAgent]:
+        """The agent instances, built on first use.
+
+        Construction reaches for the provider chain, so it must not run while a
+        server is being created: an agent card, the HTTP app, and discovery all
+        work with no credentials configured.
+        """
+        if self._agents is None:
+            self._agents = create_agents()
+        return self._agents
 
     def _define_skills(self) -> list[AgentSkill]:
         """Define the skills this agent server provides."""
@@ -272,17 +284,16 @@ class A2AAgentServer:
 
     async def _execute_skill(self, skill_id: str, query: str, context_id: str) -> str:
         """Execute a specific skill."""
-        from src.config import get_llm
         from src.graph.workflow import run_workflow
 
         if skill_id == "full_workflow":
-            result = await run_workflow(query, context_id, get_llm())
+            result = await run_workflow(query, context_id)
             return result.final_report or "Workflow completed but no report generated"
 
         if skill_id == "team":
             from src.graph.team import run_team
 
-            team = await run_team(query, context_id, get_llm())
+            team = await run_team(query, context_id)
             answer = team.final_report or "Team completed but produced no answer"
             if team.errors:
                 return f"{answer} ({len(team.errors)} subtask(s) failed: {team.errors[0]['error']})"
